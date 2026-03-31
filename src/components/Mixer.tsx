@@ -167,7 +167,7 @@ export default function Mixer({
       </div>
 
       {/* Crossfader: 0 = full A, 1 = full B */}
-      <div style={{ width: '100%' }}>
+      <div data-tutorial="crossfader" style={{ width: '100%' }}>
         <div
           style={{
             display: 'flex',

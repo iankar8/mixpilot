@@ -120,6 +120,7 @@ export default function Library({ onLoadTrack, deckALoaded, deckBLoaded }: Libra
 
   return (
     <div
+      data-tutorial="library"
       style={{
         width: '240px',
         height: '100%',

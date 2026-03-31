@@ -136,3 +136,33 @@ input[type="range"].eq-slider::-webkit-slider-thumb {
 .coach-card-enter {
   animation: coach-enter 300ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
+
+/* Tutorial card enter animation */
+@keyframes tutorial-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.tutorial-card-enter {
+  animation: tutorial-card-enter 400ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Tutorial spotlight pulse */
+@keyframes spotlight-pulse {
+  0%, 100% {
+    stroke-opacity: 0.5;
+    stroke-width: 2;
+  }
+  50% {
+    stroke-opacity: 0.9;
+    stroke-width: 3;
+  }
+}
+.tutorial-spotlight-pulse {
+  animation: spotlight-pulse 2s ease-in-out infinite;
+}

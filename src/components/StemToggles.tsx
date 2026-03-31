@@ -15,7 +15,7 @@ const STEM_CONFIG: { key: StemType; label: string; hintsA: string; hintsB: strin
 
 export default function StemToggles({ stems, onToggle, deckId }: StemTogglesProps) {
   return (
-    <div style={{ display: 'flex', gap: '6px' }}>
+    <div data-tutorial={`stems-${deckId.toLowerCase()}`} style={{ display: 'flex', gap: '6px' }}>
       {STEM_CONFIG.map((stem) => {
         const active = stems[stem.key];
         const hint = deckId === 'A' ? stem.hintsA : stem.hintsB;

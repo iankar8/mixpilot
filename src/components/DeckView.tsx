@@ -112,6 +112,7 @@ export default function DeckView({
       {/* Play/Pause button */}
       <div style={{ display: 'flex', justifyContent: 'center' }}>
         <button
+          data-tutorial={`deck-${deckId.toLowerCase()}-play`}
           onClick={onPlayPause}
           onMouseEnter={() => setHoverPlay(true)}
           onMouseLeave={() => setHoverPlay(false)}

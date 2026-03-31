@@ -1,12 +1,16 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import Library from './components/Library';
 import DeckView from './components/DeckView';
 import Mixer from './components/Mixer';
 import CoachOverlay from './components/CoachOverlay';
 import KeyboardHints from './components/KeyboardHints';
+import TutorialOverlay from './components/TutorialOverlay';
 import { useDeckStore } from './stores/deck-store';
 import { useKeyboard } from './hooks/useKeyboard';
 import { useCoach } from './hooks/useCoach';
+import { useTutorialAdvance } from './tutorial/tutorial-hooks';
+import { useTutorialStore } from './tutorial/tutorial-store';
+import { useCoachStore } from './stores/coach-store';
 import { initAudio } from './audio/engine';
 import { syncDecks } from './audio/sync';
 import type { Track, DeckId } from './lib/types';
@@ -33,6 +37,66 @@ export default function App() {
 
   // Initialize coach engine
   useCoach();
+
+  // Tutorial auto-advance watcher
+  useTutorialAdvance();
+
+  // Track stem toggles for tutorial step 8
+  const tutorialIsActive = useTutorialStore((s) => s.isActive);
+  const tutorialStep = useTutorialStore((s) => s.currentStep);
+  const incrementStemToggles = useTutorialStore((s) => s.incrementStemToggles);
+  const stemToggleTrackerRef = useRef(false);
+
+  useEffect(() => {
+    if (!tutorialIsActive || (tutorialStep !== 7 && tutorialStep !== 8)) return;
+
+    const unsub = useDeckStore.subscribe((_state, prevState) => {
+      const state = useDeckStore.getState();
+      // Check if any stem toggled between prev and current
+      const stemsA = state.deckA.stems;
+      const stemsB = state.deckB.stems;
+      const prevA = prevState.deckA.stems;
+      const prevB = prevState.deckB.stems;
+
+      const changed =
+        stemsA.vocals !== prevA.vocals ||
+        stemsA.drums !== prevA.drums ||
+        stemsA.bass !== prevA.bass ||
+        stemsA.other !== prevA.other ||
+        stemsB.vocals !== prevB.vocals ||
+        stemsB.drums !== prevB.drums ||
+        stemsB.bass !== prevB.bass ||
+        stemsB.other !== prevB.other;
+
+      if (changed) {
+        incrementStemToggles();
+      }
+    });
+
+    return unsub;
+  }, [tutorialIsActive, tutorialStep, incrementStemToggles]);
+
+  // Auto-start tutorial on first load if not completed
+  useEffect(() => {
+    const tutState = useTutorialStore.getState();
+    if (!tutState.completed && !tutState.isActive) {
+      tutState.startTutorial();
+    }
+  }, []);
+
+  // Suppress coach during tutorial
+  useEffect(() => {
+    if (tutorialIsActive) {
+      useCoachStore.getState().setEnabled(false);
+    } else {
+      // Re-enable coach after tutorial ends
+      if (!stemToggleTrackerRef.current) {
+        stemToggleTrackerRef.current = true;
+      } else {
+        useCoachStore.getState().setEnabled(true);
+      }
+    }
+  }, [tutorialIsActive]);
 
   // Ensure audio context is started on first user interaction
   const ensureAudio = useCallback(async () => {
@@ -209,6 +273,7 @@ export default function App() {
       {/* Floating overlays */}
       <CoachOverlay />
       <KeyboardHints />
+      <TutorialOverlay />
     </div>
   );
 }
