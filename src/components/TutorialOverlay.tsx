@@ -71,7 +71,7 @@ function SpotlightBackdrop({
         width: '100vw',
         height: '100vh',
         zIndex: 9998,
-        pointerEvents: 'auto',
+        pointerEvents: 'none',
         cursor: 'default',
       }}
     >
@@ -135,6 +135,28 @@ function TutorialCard({
   const nextStep = useTutorialStore((s) => s.nextStep);
   const completeTutorial = useTutorialStore((s) => s.completeTutorial);
   const dismissTutorial = useTutorialStore((s) => s.dismissTutorial);
+
+  const isLast = stepIndex === totalSteps - 1;
+
+  // Keyboard: Space or Enter to advance
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.code === 'Space' || e.code === 'Enter') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isLast) {
+          completeTutorial();
+        } else {
+          nextStep();
+        }
+      } else if (e.code === 'Escape') {
+        e.preventDefault();
+        dismissTutorial();
+      }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => window.removeEventListener('keydown', handler, true);
+  }, [isLast, nextStep, completeTutorial, dismissTutorial]);
 
   if (!step) return null;
 
@@ -342,47 +364,24 @@ function TutorialCard({
             Skip tutorial
           </button>
 
-          {isWelcome && (
-            <button
-              onClick={nextStep}
-              style={{
-                padding: '8px 20px',
-                background: '#a78bfa',
-                border: 'none',
-                borderRadius: '8px',
-                color: '#fff',
-                fontSize: '13px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                transition: 'all 150ms cubic-bezier(0.22, 1, 0.36, 1)',
-                boxShadow: '0 0 16px rgba(167,139,250,0.3)',
-                fontFamily: 'system-ui, sans-serif',
-              }}
-            >
-              Let's go
-            </button>
-          )}
-
-          {isDone && (
-            <button
-              onClick={completeTutorial}
-              style={{
-                padding: '8px 20px',
-                background: '#a78bfa',
-                border: 'none',
-                borderRadius: '8px',
-                color: '#fff',
-                fontSize: '13px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                transition: 'all 150ms cubic-bezier(0.22, 1, 0.36, 1)',
-                boxShadow: '0 0 16px rgba(167,139,250,0.3)',
-                fontFamily: 'system-ui, sans-serif',
-              }}
-            >
-              Start mixing
-            </button>
-          )}
+          <button
+            onClick={isDone ? completeTutorial : nextStep}
+            style={{
+              padding: '8px 20px',
+              background: '#a78bfa',
+              border: 'none',
+              borderRadius: '8px',
+              color: '#fff',
+              fontSize: '13px',
+              fontWeight: 700,
+              cursor: 'pointer',
+              transition: 'all 150ms cubic-bezier(0.22, 1, 0.36, 1)',
+              boxShadow: '0 0 16px rgba(167,139,250,0.3)',
+              fontFamily: 'system-ui, sans-serif',
+            }}
+          >
+            {isWelcome ? "Let's go" : isDone ? 'Start mixing' : 'Next'}
+          </button>
         </div>
       </div>
     </div>
