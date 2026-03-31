@@ -1,15 +1,5 @@
 import { create } from 'zustand'
-
-// Inline types (types.ts owned by audio agent)
-type CoachSuggestion = {
-  id: string
-  message: string
-  action?: () => void
-  actionLabel?: string
-  type: 'info' | 'warning' | 'success'
-  rule: string
-  timestamp: number
-}
+import type { CoachSuggestion } from '../lib/types'
 
 interface CoachState {
   suggestions: CoachSuggestion[]
@@ -83,10 +73,10 @@ export const useCoachStore = create<CoachState>((set, get) => ({
   },
 
   clearAll: () => {
-    for (const [id, timer] of timers) {
+    for (const [, timer] of timers) {
       clearTimeout(timer)
-      timers.delete(id)
     }
+    timers.clear()
     set({ suggestions: [] })
   },
 

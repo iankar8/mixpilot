@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Track, DeckId } from './types';
+import type { Track, DeckId } from '../lib/types';
 
 interface LibraryProps {
   onLoadTrack: (track: Track, targetDeck: DeckId) => void;
@@ -100,6 +100,8 @@ const TRACKS: Track[] = [
   { id: '90', name: 'Jugg', artist: 'Young Nudy', filename: 'Young Nudy - Jugg.mp3' },
 ];
 
+export { TRACKS };
+
 export default function Library({ onLoadTrack, deckALoaded, deckBLoaded }: LibraryProps) {
   const [search, setSearch] = useState('');
 
@@ -163,6 +165,7 @@ export default function Library({ onLoadTrack, deckALoaded, deckBLoaded }: Libra
             placeholder="Search tracks..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            data-library-search
             style={{
               width: '100%',
               padding: '6px 8px 6px 28px',

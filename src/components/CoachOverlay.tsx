@@ -1,10 +1,5 @@
-import { useState, useEffect } from 'react';
-import type { CoachSuggestion } from './types';
-
-interface CoachOverlayProps {
-  suggestions?: CoachSuggestion[];
-  hasTracksLoaded?: boolean;
-}
+import type { CoachSuggestion } from '../lib/types';
+import { useCoachStore } from '../stores/coach-store';
 
 const TYPE_COLORS: Record<CoachSuggestion['type'], string> = {
   info: '#60a5fa',
@@ -12,31 +7,11 @@ const TYPE_COLORS: Record<CoachSuggestion['type'], string> = {
   success: '#a78bfa',
 };
 
-export default function CoachOverlay({ suggestions: externalSuggestions, hasTracksLoaded = false }: CoachOverlayProps) {
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+export default function CoachOverlay() {
+  const suggestions = useCoachStore((s) => s.suggestions);
+  const dismissSuggestion = useCoachStore((s) => s.dismissSuggestion);
 
-  // Default welcome suggestion
-  const defaultSuggestions: CoachSuggestion[] = !hasTracksLoaded
-    ? [
-        {
-          id: 'welcome',
-          type: 'info',
-          message: 'Load tracks from the library to get started',
-        },
-      ]
-    : [];
-
-  const allSuggestions = externalSuggestions ?? defaultSuggestions;
-  const visible = allSuggestions
-    .filter((s) => !dismissed.has(s.id))
-    .slice(0, 2);
-
-  // Reset dismissed when suggestions change
-  useEffect(() => {
-    setDismissed(new Set());
-  }, [externalSuggestions]);
-
-  if (visible.length === 0) return null;
+  if (suggestions.length === 0) return null;
 
   return (
     <div
@@ -55,7 +30,7 @@ export default function CoachOverlay({ suggestions: externalSuggestions, hasTrac
         padding: '0 16px',
       }}
     >
-      {visible.map((suggestion) => (
+      {suggestions.map((suggestion) => (
         <div
           key={suggestion.id}
           className="coach-card-enter"
@@ -105,7 +80,7 @@ export default function CoachOverlay({ suggestions: externalSuggestions, hasTrac
           )}
 
           <button
-            onClick={() => setDismissed((prev) => new Set(prev).add(suggestion.id))}
+            onClick={() => dismissSuggestion(suggestion.id)}
             style={{
               background: 'none',
               border: 'none',

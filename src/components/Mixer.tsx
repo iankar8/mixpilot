@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import type { MixerState } from './types';
+import { useState, useCallback } from 'react';
 
 interface MixerProps {
-  state: MixerState;
+  crossfader: number;
+  masterVolume: number;
   bpmA: number;
   bpmB: number;
   onCrossfaderChange: (value: number) => void;
@@ -11,7 +11,8 @@ interface MixerProps {
 }
 
 export default function Mixer({
-  state,
+  crossfader,
+  masterVolume,
   bpmA,
   bpmB,
   onCrossfaderChange,
@@ -19,6 +20,17 @@ export default function Mixer({
   onSync,
 }: MixerProps) {
   const [syncHover, setSyncHover] = useState(false);
+
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      e.preventDefault();
+      // deltaY < 0 = scroll up = toward B, deltaY > 0 = scroll down = toward A
+      const delta = e.deltaY < 0 ? 0.02 : -0.02;
+      const next = Math.max(0, Math.min(1, crossfader + delta));
+      onCrossfaderChange(next);
+    },
+    [crossfader, onCrossfaderChange],
+  );
 
   return (
     <div
@@ -35,6 +47,7 @@ export default function Mixer({
         alignItems: 'center',
         flexShrink: 0,
       }}
+      onWheel={handleWheel}
     >
       {/* BPM displays */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
@@ -137,7 +150,7 @@ export default function Mixer({
             min={0}
             max={1}
             step={0.01}
-            value={state.masterVolume}
+            value={masterVolume}
             onChange={(e) => onMasterVolumeChange(parseFloat(e.target.value))}
             style={{ height: '70px' }}
           />
@@ -149,11 +162,11 @@ export default function Mixer({
             color: 'var(--text-tertiary)',
           }}
         >
-          {Math.round(state.masterVolume * 100)}
+          {Math.round(masterVolume * 100)}
         </span>
       </div>
 
-      {/* Crossfader */}
+      {/* Crossfader: 0 = full A, 1 = full B */}
       <div style={{ width: '100%' }}>
         <div
           style={{
@@ -168,10 +181,10 @@ export default function Mixer({
         <input
           type="range"
           className="crossfader"
-          min={-1}
+          min={0}
           max={1}
           step={0.01}
-          value={state.crossfader}
+          value={crossfader}
           onChange={(e) => onCrossfaderChange(parseFloat(e.target.value))}
         />
       </div>

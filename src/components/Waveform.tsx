@@ -18,7 +18,6 @@ export default function Waveform({ url, color = '#a78bfa', height = 80 }: Wavefo
       container: containerRef.current,
       waveColor: color,
       progressColor: color + 'cc',
-      backgroundColor: 'transparent',
       barWidth: 2,
       barGap: 1,
       barRadius: 2,

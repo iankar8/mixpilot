@@ -2,31 +2,7 @@ import { checkTimingRules } from './timing'
 import { checkClashRules } from './clash'
 import { checkPraiseRules, createPraiseHistory } from './praise'
 import type { PraiseHistory } from './praise'
-
-// Inline types (types.ts owned by audio agent)
-type StemType = 'vocals' | 'drums' | 'bass' | 'other'
-type DeckId = 'A' | 'B'
-type CoachSuggestion = {
-  id: string
-  message: string
-  action?: () => void
-  actionLabel?: string
-  type: 'info' | 'warning' | 'success'
-  rule: string
-  timestamp: number
-}
-
-export interface DeckState {
-  track: { name: string } | null
-  isPlaying: boolean
-  volume: number
-  stems: Record<StemType, boolean>
-  eq: { low: number; mid: number; high: number }
-  filterFreq: number
-  bpm: number
-  currentTime: number
-  duration: number
-}
+import type { DeckId, DeckState, CoachSuggestion } from '../lib/types'
 
 export interface CoachConfig {
   getDeckState: (deckId: DeckId) => DeckState | null

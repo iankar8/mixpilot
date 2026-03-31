@@ -1,12 +1,12 @@
-import type { DeckId, StemState, StemName } from './types';
+import type { DeckId, StemState, StemType } from '../lib/types';
 
 interface StemTogglesProps {
   stems: StemState;
-  onToggle: (stem: StemName) => void;
+  onToggle: (stem: StemType) => void;
   deckId: DeckId;
 }
 
-const STEM_CONFIG: { key: StemName; label: string; hintsA: string; hintsB: string }[] = [
+const STEM_CONFIG: { key: StemType; label: string; hintsA: string; hintsB: string }[] = [
   { key: 'vocals', label: 'VOX', hintsA: 'Q', hintsB: 'U' },
   { key: 'drums', label: 'DRM', hintsA: 'W', hintsB: 'I' },
   { key: 'bass', label: 'BAS', hintsA: 'E', hintsB: 'O' },

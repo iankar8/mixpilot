@@ -1,20 +1,22 @@
 import { useState } from 'react';
 import Waveform from './Waveform';
 import StemToggles from './StemToggles';
-import type { DeckId, DeckState, StemName } from './types';
+import type { DeckId, DeckState, StemType } from '../lib/types';
 
 interface DeckViewProps {
   deckId: DeckId;
   state: DeckState;
+  trackUrl?: string;
   onPlayPause: () => void;
-  onStemToggle: (stem: StemName) => void;
+  onStemToggle: (stem: StemType) => void;
   onVolumeChange: (volume: number) => void;
-  onEQChange: (band: 'hi' | 'mid' | 'lo', value: number) => void;
+  onEQChange: (band: 'low' | 'mid' | 'high', value: number) => void;
 }
 
 export default function DeckView({
   deckId,
   state,
+  trackUrl,
   onPlayPause,
   onStemToggle,
   onVolumeChange,
@@ -102,7 +104,7 @@ export default function DeckView({
 
       {/* Waveform */}
       <Waveform
-        url={hasTrack ? `/music/${state.track!.filename}` : undefined}
+        url={trackUrl}
         color={deckId === 'A' ? '#a78bfa' : '#60a5fa'}
         height={80}
       />
@@ -170,7 +172,7 @@ export default function DeckView({
             border: '1px solid var(--border)',
           }}
         >
-          {(['hi', 'mid', 'lo'] as const).map((band) => (
+          {(['high', 'mid', 'low'] as const).map((band) => (
             <div
               key={band}
               style={{
@@ -190,7 +192,7 @@ export default function DeckView({
                   letterSpacing: '0.05em',
                 }}
               >
-                {band}
+                {band === 'high' ? 'hi' : band === 'low' ? 'lo' : 'mid'}
               </span>
               <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
                 <input
