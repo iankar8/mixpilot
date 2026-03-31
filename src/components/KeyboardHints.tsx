@@ -1,3 +1,5 @@
+import { useTutorialStore } from '../tutorial/tutorial-store';
+
 const SHORTCUTS = [
   { key: 'SPACE', action: 'Play A' },
   { key: 'ENTER', action: 'Play B' },
@@ -8,6 +10,9 @@ const SHORTCUTS = [
 ];
 
 export default function KeyboardHints() {
+  const restartTutorial = useTutorialStore((s) => s.restartTutorial);
+  const tutorialActive = useTutorialStore((s) => s.isActive);
+
   return (
     <div
       style={{
@@ -56,6 +61,24 @@ export default function KeyboardHints() {
           </span>
         </div>
       ))}
+      {!tutorialActive && (
+        <button
+          onClick={restartTutorial}
+          style={{
+            marginTop: '6px',
+            padding: '4px 8px',
+            fontSize: '10px',
+            color: 'var(--accent)',
+            background: 'transparent',
+            border: '1px solid var(--border)',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            width: '100%',
+          }}
+        >
+          Restart Tutorial
+        </button>
+      )}
     </div>
   );
 }

@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { Track, DeckId } from '../lib/types';
+import { getRecommendations } from '../lib/recommendations';
 
 interface LibraryProps {
   onLoadTrack: (track: Track, targetDeck: DeckId) => void;
   deckALoaded: boolean;
   deckBLoaded: boolean;
+  currentTrackA?: Track | null;
+  currentTrackB?: Track | null;
 }
 
 const TRACKS: Track[] = [
@@ -102,8 +105,16 @@ const TRACKS: Track[] = [
 
 export { TRACKS };
 
-export default function Library({ onLoadTrack, deckALoaded, deckBLoaded }: LibraryProps) {
+export default function Library({ onLoadTrack, deckALoaded, deckBLoaded, currentTrackA, currentTrackB }: LibraryProps) {
   const [search, setSearch] = useState('');
+
+  // Get AI recommendations based on what's currently loaded
+  const activeTrack = currentTrackA || currentTrackB;
+  const loadedIds = [currentTrackA?.id, currentTrackB?.id].filter(Boolean) as string[];
+  const recommendations = useMemo(() => {
+    if (!activeTrack) return [];
+    return getRecommendations(activeTrack, TRACKS, loadedIds, 5);
+  }, [activeTrack?.id, loadedIds.join(',')]);
 
   const filtered = TRACKS.filter((track) => {
     const q = search.toLowerCase();
@@ -181,6 +192,86 @@ export default function Library({ onLoadTrack, deckALoaded, deckBLoaded }: Libra
           />
         </div>
       </div>
+
+      {/* AI Recommendations */}
+      {recommendations.length > 0 && !search && (
+        <div style={{ borderBottom: '1px solid var(--border)' }}>
+          <div
+            style={{
+              padding: '8px 14px 4px',
+              fontSize: '10px',
+              fontWeight: 700,
+              color: 'var(--accent)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
+            }}
+          >
+            Recommended Next
+          </div>
+          {recommendations.map((rec) => (
+            <button
+              key={rec.track.id}
+              onClick={() => handleClick(rec.track)}
+              style={{
+                width: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                padding: '6px 14px',
+                background: 'rgba(167, 139, 250, 0.04)',
+                border: 'none',
+                borderLeft: '2px solid var(--accent)',
+                cursor: 'pointer',
+                textAlign: 'left',
+                transition: 'background 150ms cubic-bezier(0.22, 1, 0.36, 1)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(167, 139, 250, 0.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(167, 139, 250, 0.04)';
+              }}
+            >
+              <span
+                style={{
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  color: 'var(--text-primary)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  width: '100%',
+                }}
+              >
+                {rec.track.name}
+              </span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    color: 'var(--text-secondary)',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {rec.track.artist}
+                </span>
+                <span
+                  style={{
+                    fontSize: '9px',
+                    color: 'var(--accent)',
+                    fontFamily: 'ui-monospace, monospace',
+                    whiteSpace: 'nowrap',
+                    marginLeft: '4px',
+                  }}
+                >
+                  {rec.reason}
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Track list */}
       <div

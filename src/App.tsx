@@ -183,6 +183,8 @@ export default function App() {
         onLoadTrack={handleLoadTrack}
         deckALoaded={deckA.track !== null}
         deckBLoaded={deckB.track !== null}
+        currentTrackA={deckA.track}
+        currentTrackB={deckB.track}
       />
 
       {/* Main area */}

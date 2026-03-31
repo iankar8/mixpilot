@@ -20,6 +20,7 @@ interface TutorialState {
   completeTutorial: () => void;
   incrementStemToggles: () => void;
   dismissTutorial: () => void;
+  restartTutorial: () => void;
 }
 
 function wasCompleted(): boolean {
@@ -75,5 +76,9 @@ export const useTutorialStore = create<TutorialState>()((set) => ({
       // localStorage unavailable — no-op
     }
     set({ isActive: false, completed: true });
+  },
+
+  restartTutorial: () => {
+    set({ isActive: true, currentStep: 1, stemToggles: 0, completed: false });
   },
 }));
