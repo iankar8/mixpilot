@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import type { Track, DeckId } from '../lib/types';
-import { getRecommendations } from '../lib/recommendations';
+import { getRecommendations, BPM_ESTIMATES } from '../lib/recommendations';
 
 interface LibraryProps {
   onLoadTrack: (track: Track, targetDeck: DeckId) => void;
@@ -103,31 +103,165 @@ const TRACKS: Track[] = [
   { id: '90', name: 'Jugg', artist: 'Young Nudy', filename: 'Young Nudy - Jugg.mp3' },
 ];
 
-export { TRACKS };
+// ---------------------------------------------------------------------------
+// TrackRow — single track with explicit A/B deck buttons on hover
+// ---------------------------------------------------------------------------
 
-export default function Library({ onLoadTrack, deckALoaded, deckBLoaded, currentTrackA, currentTrackB }: LibraryProps) {
+function TrackRow({
+  track,
+  isHovered,
+  onHover,
+  onLoad,
+  accent = false,
+  reason,
+  isLoadedOnA,
+  isLoadedOnB,
+}: {
+  track: Track;
+  isHovered: boolean;
+  onHover: (id: string | null) => void;
+  onLoad: (track: Track, deck: DeckId) => void;
+  accent?: boolean;
+  reason?: string;
+  isLoadedOnA: boolean;
+  isLoadedOnB: boolean;
+}) {
+  const isLoaded = isLoadedOnA || isLoadedOnB;
+
+  return (
+    <div
+      onMouseEnter={() => onHover(track.id)}
+      onMouseLeave={() => onHover(null)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        padding: '5px 8px 5px 14px',
+        background: isHovered
+          ? accent ? 'rgba(167,139,250,0.1)' : 'var(--surface)'
+          : accent ? 'rgba(167,139,250,0.04)' : 'transparent',
+        borderLeft: accent ? '2px solid var(--accent)' : 'none',
+        transition: 'background 150ms cubic-bezier(0.22, 1, 0.36, 1)',
+        gap: '6px',
+        minHeight: '38px',
+      }}
+    >
+      {/* Track info */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: '12px',
+            fontWeight: 500,
+            color: isLoaded ? 'var(--accent)' : 'var(--text-primary)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {track.name}
+        </div>
+        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <span
+            style={{
+              fontSize: '11px',
+              color: 'var(--text-secondary)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              flex: 1,
+            }}
+          >
+            {track.artist}
+          </span>
+          {reason && (
+            <span style={{ fontSize: '9px', color: 'var(--accent)', fontFamily: 'ui-monospace, monospace', whiteSpace: 'nowrap' }}>
+              {reason}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* A/B load buttons — visible on hover or when loaded */}
+      <div style={{ display: 'flex', gap: '3px', flexShrink: 0 }}>
+        <button
+          onClick={() => onLoad(track, 'A')}
+          title="Load to Deck A"
+          style={{
+            width: '22px',
+            height: '22px',
+            borderRadius: '4px',
+            border: '1px solid',
+            borderColor: isLoadedOnA ? 'var(--accent)' : 'rgba(167,139,250,0.3)',
+            background: isLoadedOnA ? 'var(--accent)' : 'transparent',
+            color: isLoadedOnA ? '#fff' : 'var(--accent)',
+            fontSize: '9px',
+            fontWeight: 700,
+            fontFamily: 'ui-monospace, monospace',
+            cursor: 'pointer',
+            opacity: isHovered || isLoadedOnA ? 1 : 0,
+            transition: 'all 150ms cubic-bezier(0.22, 1, 0.36, 1)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          A
+        </button>
+        <button
+          onClick={() => onLoad(track, 'B')}
+          title="Load to Deck B"
+          style={{
+            width: '22px',
+            height: '22px',
+            borderRadius: '4px',
+            border: '1px solid',
+            borderColor: isLoadedOnB ? '#60a5fa' : 'rgba(96,165,250,0.3)',
+            background: isLoadedOnB ? '#60a5fa' : 'transparent',
+            color: isLoadedOnB ? '#fff' : '#60a5fa',
+            fontSize: '9px',
+            fontWeight: 700,
+            fontFamily: 'ui-monospace, monospace',
+            cursor: 'pointer',
+            opacity: isHovered || isLoadedOnB ? 1 : 0,
+            transition: 'all 150ms cubic-bezier(0.22, 1, 0.36, 1)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          B
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Augment tracks with BPM estimates
+const TRACKS_WITH_BPM: Track[] = TRACKS.map(t => ({
+  ...t,
+  bpm: t.bpm ?? BPM_ESTIMATES[t.artist] ?? 128,
+}));
+
+export { TRACKS, TRACKS_WITH_BPM };
+
+export default function Library({ onLoadTrack, currentTrackA, currentTrackB }: LibraryProps) {
   const [search, setSearch] = useState('');
+  const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
 
   // Get AI recommendations based on what's currently loaded
   const activeTrack = currentTrackA || currentTrackB;
   const loadedIds = [currentTrackA?.id, currentTrackB?.id].filter(Boolean) as string[];
   const recommendations = useMemo(() => {
     if (!activeTrack) return [];
-    return getRecommendations(activeTrack, TRACKS, loadedIds, 5);
+    return getRecommendations(activeTrack, TRACKS_WITH_BPM, loadedIds, 5);
   }, [activeTrack?.id, loadedIds.join(',')]);
 
-  const filtered = TRACKS.filter((track) => {
+  const filtered = TRACKS_WITH_BPM.filter((track) => {
     const q = search.toLowerCase();
     return (
       track.name.toLowerCase().includes(q) ||
       track.artist.toLowerCase().includes(q)
     );
   });
-
-  const handleClick = (track: Track) => {
-    const targetDeck: DeckId = !deckALoaded ? 'A' : !deckBLoaded ? 'B' : 'A';
-    onLoadTrack(track, targetDeck);
-  };
 
   return (
     <div
@@ -209,66 +343,17 @@ export default function Library({ onLoadTrack, deckALoaded, deckBLoaded, current
             Recommended Next
           </div>
           {recommendations.map((rec) => (
-            <button
+            <TrackRow
               key={rec.track.id}
-              onClick={() => handleClick(rec.track)}
-              style={{
-                width: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                padding: '6px 14px',
-                background: 'rgba(167, 139, 250, 0.04)',
-                border: 'none',
-                borderLeft: '2px solid var(--accent)',
-                cursor: 'pointer',
-                textAlign: 'left',
-                transition: 'background 150ms cubic-bezier(0.22, 1, 0.36, 1)',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(167, 139, 250, 0.1)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(167, 139, 250, 0.04)';
-              }}
-            >
-              <span
-                style={{
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  color: 'var(--text-primary)',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  width: '100%',
-                }}
-              >
-                {rec.track.name}
-              </span>
-              <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                <span
-                  style={{
-                    fontSize: '11px',
-                    color: 'var(--text-secondary)',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {rec.track.artist}
-                </span>
-                <span
-                  style={{
-                    fontSize: '9px',
-                    color: 'var(--accent)',
-                    fontFamily: 'ui-monospace, monospace',
-                    whiteSpace: 'nowrap',
-                    marginLeft: '4px',
-                  }}
-                >
-                  {rec.reason}
-                </span>
-              </div>
-            </button>
+              track={rec.track}
+              isHovered={hoveredTrackId === rec.track.id}
+              onHover={setHoveredTrackId}
+              onLoad={onLoadTrack}
+              accent
+              reason={rec.reason}
+              isLoadedOnA={currentTrackA?.id === rec.track.id}
+              isLoadedOnB={currentTrackB?.id === rec.track.id}
+            />
           ))}
         </div>
       )}
@@ -283,53 +368,15 @@ export default function Library({ onLoadTrack, deckALoaded, deckBLoaded, current
         }}
       >
         {filtered.map((track) => (
-          <button
+          <TrackRow
             key={track.id}
-            onClick={() => handleClick(track)}
-            style={{
-              width: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              padding: '6px 14px',
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              textAlign: 'left',
-              transition: 'background 150ms cubic-bezier(0.22, 1, 0.36, 1)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'var(--surface)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent';
-            }}
-          >
-            <span
-              style={{
-                fontSize: '12px',
-                fontWeight: 500,
-                color: 'var(--text-primary)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                width: '100%',
-              }}
-            >
-              {track.name}
-            </span>
-            <span
-              style={{
-                fontSize: '11px',
-                color: 'var(--text-secondary)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                width: '100%',
-              }}
-            >
-              {track.artist}
-            </span>
-          </button>
+            track={track}
+            isHovered={hoveredTrackId === track.id}
+            onHover={setHoveredTrackId}
+            onLoad={onLoadTrack}
+            isLoadedOnA={currentTrackA?.id === track.id}
+            isLoadedOnB={currentTrackB?.id === track.id}
+          />
         ))}
       </div>
 

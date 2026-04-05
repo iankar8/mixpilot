@@ -20,6 +20,13 @@ export default function Mixer({
   onSync,
 }: MixerProps) {
   const [syncHover, setSyncHover] = useState(false);
+  const [synced, setSynced] = useState(false);
+
+  const handleSync = () => {
+    onSync();
+    setSynced(true);
+    setTimeout(() => setSynced(false), 1200);
+  };
 
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
@@ -101,16 +108,20 @@ export default function Mixer({
 
       {/* Sync button */}
       <button
-        onClick={onSync}
+        onClick={handleSync}
         onMouseEnter={() => setSyncHover(true)}
         onMouseLeave={() => setSyncHover(false)}
         style={{
           width: '100%',
           padding: '6px 0',
-          border: '1px solid var(--accent)',
+          border: `1px solid ${synced ? '#4ade80' : 'var(--accent)'}`,
           borderRadius: '6px',
-          background: syncHover ? 'rgba(167,139,250,0.15)' : 'transparent',
-          color: 'var(--accent)',
+          background: synced
+            ? 'rgba(74,222,128,0.15)'
+            : syncHover
+              ? 'rgba(167,139,250,0.15)'
+              : 'transparent',
+          color: synced ? '#4ade80' : 'var(--accent)',
           cursor: 'pointer',
           transition: 'all 150ms cubic-bezier(0.22, 1, 0.36, 1)',
           fontSize: '11px',
@@ -119,7 +130,7 @@ export default function Mixer({
           letterSpacing: '0.1em',
         }}
       >
-        SYNC
+        {synced ? 'SYNCED' : 'SYNC'}
       </button>
 
       {/* Master volume */}

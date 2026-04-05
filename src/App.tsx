@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import Library from './components/Library';
 import DeckView from './components/DeckView';
 import Mixer from './components/Mixer';
-import CoachOverlay from './components/CoachOverlay';
+import AIPanel from './components/AIPanel';
 import KeyboardHints from './components/KeyboardHints';
 import TutorialOverlay from './components/TutorialOverlay';
 import { useDeckStore } from './stores/deck-store';
@@ -15,6 +15,7 @@ import { initAudio } from './audio/engine';
 import { syncDecks } from './audio/sync';
 import type { Track, DeckId } from './lib/types';
 import { getTrackUrl, getStemUrls } from './lib/types';
+import { BPM_ESTIMATES } from './lib/recommendations';
 
 export default function App() {
   const audioInitRef = useRef(false);
@@ -31,6 +32,8 @@ export default function App() {
   const setEQ = useDeckStore((s) => s.setEQ);
   const setCrossfader = useDeckStore((s) => s.setCrossfader);
   const getEngine = useDeckStore((s) => s.getEngine);
+  const seekDeck = useDeckStore((s) => s.seekDeck);
+  const setBPM = useDeckStore((s) => s.setBPM);
 
   // Initialize keyboard shortcuts
   useKeyboard();
@@ -111,8 +114,9 @@ export default function App() {
     async (track: Track, targetDeck: DeckId) => {
       await ensureAudio();
 
-      // Set track on store
-      setDeckTrack(targetDeck, track);
+      // Set track on store (BPM from track or estimates)
+      const bpm = track.bpm ?? BPM_ESTIMATES[track.artist] ?? 128;
+      setDeckTrack(targetDeck, { ...track, bpm });
 
       // Load stems into audio engine
       const engine = getEngine(targetDeck);
@@ -138,9 +142,31 @@ export default function App() {
           console.error(`[mixpilot] Failed to load track ${track.name}`, fallbackErr);
         }
       }
+
+      // Set duration and extract waveform peaks from drums stem
+      const duration = engine.getDuration();
+      const peaks = engine.getPeaks('drums', 500);
+      const deckKey = targetDeck === 'A' ? 'deckA' : 'deckB';
+      useDeckStore.setState((s) => ({
+        [deckKey]: { ...s[deckKey], duration, bpm, peaks },
+      }));
     },
     [ensureAudio, setDeckTrack, getEngine],
   );
+
+  // Poll playback time every 100ms and update waveform cursor
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const state = useDeckStore.getState();
+      if (state.deckA.isPlaying) {
+        state.setCurrentTime('A', state.getEngine('A').getCurrentTime());
+      }
+      if (state.deckB.isPlaying) {
+        state.setCurrentTime('B', state.getEngine('B').getCurrentTime());
+      }
+    }, 100);
+    return () => clearInterval(interval);
+  }, []);
 
   const handlePlayPause = useCallback(
     async (id: DeckId) => {
@@ -160,12 +186,56 @@ export default function App() {
     if (bpmA > 0 && bpmB > 0) {
       const engineA = getEngine('A');
       const engineB = getEngine('B');
+
+      // 1. Match tempo: adjust Deck B's rate so it plays at bpmA
       syncDecks(engineA, engineB, bpmA, bpmA, bpmB);
+
+      // 2. Beat phase snap: seek Deck B so its beats align with Deck A's current beat
+      const beatPeriodA = 60 / bpmA; // seconds per beat at target BPM
+      const phaseA = engineA.getCurrentTime() % beatPeriodA; // A's position within current beat
+
+      // Deck B's file has bpmB BPM, but after rate adjust it plays at bpmA.
+      // To put Deck B at the same beat phase, we seek it in its original timescale.
+      const beatPeriodB_original = 60 / bpmB; // beat period in B's original file
+      const currentB = engineB.getCurrentTime();
+      const currentBeatB = Math.floor(currentB / beatPeriodB_original);
+      // Target: find the beat boundary in B's original time closest to keeping B near its current position
+      const phaseB_target = phaseA * (bpmB / bpmA); // same phase in B's original timescale
+      const seekB = currentBeatB * beatPeriodB_original + phaseB_target;
+      engineB.seek(Math.max(0, seekB));
+
+      // 3. Update Deck B's displayed BPM to the target
+      useDeckStore.setState((s) => ({
+        deckB: { ...s.deckB, bpm: bpmA },
+      }));
+
+      console.log(`[mixpilot] SYNC: B ${bpmB}→${bpmA} BPM (rate=${(bpmA / bpmB).toFixed(3)}, seekB=${seekB.toFixed(2)}s)`);
     }
   }, [ensureAudio, getEngine]);
 
-  const trackUrlA = deckA.track ? getTrackUrl(deckA.track.filename) : undefined;
-  const trackUrlB = deckB.track ? getTrackUrl(deckB.track.filename) : undefined;
+  // Nudge: temporarily speed up or slow down a deck to manually phase-align beats.
+  // Hold << to slow down (let other deck catch up), >> to speed up (push ahead).
+  const handleNudge = useCallback(
+    (id: DeckId, direction: 'forward' | 'back') => {
+      const engine = getEngine(id);
+      const state = useDeckStore.getState();
+      const currentBpm = id === 'A' ? state.deckA.bpm : state.deckB.bpm;
+      if (currentBpm <= 0) return;
+      // Nudge by ±8% of current BPM while held
+      const nudgedBpm = direction === 'forward' ? currentBpm * 1.08 : currentBpm * 0.92;
+      engine.setPlaybackRate(nudgedBpm / currentBpm);
+    },
+    [getEngine],
+  );
+
+  const handleNudgeEnd = useCallback(
+    (id: DeckId) => {
+      const engine = getEngine(id);
+      // Restore normal rate (1.0 relative to the stored bpm)
+      engine.setPlaybackRate(1.0);
+    },
+    [getEngine],
+  );
 
   return (
     <div
@@ -197,30 +267,8 @@ export default function App() {
           overflow: 'hidden',
         }}
       >
-        {/* Top bar */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '8px 16px',
-            borderBottom: '1px solid var(--border)',
-            flexShrink: 0,
-          }}
-        >
-          <span
-            style={{
-              fontFamily: 'ui-monospace, monospace',
-              fontSize: '13px',
-              fontWeight: 600,
-              color: 'var(--text-tertiary)',
-              letterSpacing: '0.15em',
-              textTransform: 'lowercase',
-            }}
-          >
-            mixpilot
-          </span>
-        </div>
+        {/* AI Assistant Panel */}
+        <AIPanel />
 
         {/* Decks + Mixer */}
         <div
@@ -238,11 +286,13 @@ export default function App() {
           <DeckView
             deckId="A"
             state={deckA}
-            trackUrl={trackUrlA}
             onPlayPause={() => handlePlayPause('A')}
             onStemToggle={(stem) => toggleStem('A', stem)}
             onVolumeChange={(v) => setVolume('A', v)}
             onEQChange={(band, val) => setEQ('A', band, val)}
+            onSeek={(p) => seekDeck('A', p * deckA.duration)}
+            onNudge={(dir) => handleNudge('A', dir)}
+            onNudgeEnd={() => handleNudgeEnd('A')}
           />
 
           {/* Mixer */}
@@ -253,7 +303,6 @@ export default function App() {
             bpmB={deckB.bpm}
             onCrossfaderChange={setCrossfader}
             onMasterVolumeChange={(v) => {
-              // Update master volume (could be wired to a global gain)
               useDeckStore.setState({ masterVolume: v });
             }}
             onSync={handleSync}
@@ -263,17 +312,18 @@ export default function App() {
           <DeckView
             deckId="B"
             state={deckB}
-            trackUrl={trackUrlB}
             onPlayPause={() => handlePlayPause('B')}
             onStemToggle={(stem) => toggleStem('B', stem)}
             onVolumeChange={(v) => setVolume('B', v)}
             onEQChange={(band, val) => setEQ('B', band, val)}
+            onSeek={(p) => seekDeck('B', p * deckB.duration)}
+            onNudge={(dir) => handleNudge('B', dir)}
+            onNudgeEnd={() => handleNudgeEnd('B')}
           />
         </div>
       </div>
 
       {/* Floating overlays */}
-      <CoachOverlay />
       <KeyboardHints />
       <TutorialOverlay />
     </div>

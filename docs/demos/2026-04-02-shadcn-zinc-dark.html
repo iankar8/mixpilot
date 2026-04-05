@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>mixpilot — shadcn Zinc dark</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<style>
+/* ── shadcn Zinc dark tokens ─────────────────────────────────────── */
+:root {
+  --background:        #09090b;   /* zinc-950 */
+  --card:              #09090b;
+  --card-elevated:     #18181b;   /* zinc-900 */
+  --surface:           #18181b;
+  --surface-hover:     #27272a;   /* zinc-800 */
+  --border:            #27272a;
+  --input:             #27272a;
+  --ring:              #d4d4d8;   /* zinc-300 */
+
+  --foreground:        #fafafa;   /* zinc-50 */
+  --muted-foreground:  #a1a1aa;   /* zinc-400 */
+  --subtle-foreground: #71717a;   /* zinc-500 */
+
+  /* keep the violet accent — shadcn default violet */
+  --accent:            #a78bfa;
+  --accent-glow:       rgba(167, 139, 250, 0.25);
+  --accent-surface:    rgba(167, 139, 250, 0.08);
+
+  --radius:            0.375rem;  /* shadcn default */
+  --radius-lg:         0.5rem;
+  --radius-xl:         0.75rem;
+
+  --font-sans: 'Geist', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── Library sidebar ────────────────────────────────────────────── */
+.sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-header {
+  padding: 12px 12px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-header-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  margin-bottom: 8px;
+}
+
+.search-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  padding: 5px 10px;
+  outline: none;
+}
+.search-input:focus { border-color: var(--accent); }
+.search-input::placeholder { color: var(--subtle-foreground); }
+
+.section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--subtle-foreground);
+  padding: 10px 12px 4px;
+}
+
+.track-list { overflow-y: auto; flex: 1; }
+
+.track-row {
+  padding: 6px 12px;
+  cursor: pointer;
+  border-radius: 0;
+  position: relative;
+}
+.track-row:hover { background: var(--surface-hover); }
+.track-row.active { background: var(--accent-surface); }
+
+.track-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.track-artist {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-chips {
+  display: flex;
+  gap: 4px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+.chip {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-weight: 500;
+  background: var(--surface-hover);
+  color: var(--muted-foreground);
+}
+.chip.bpm { color: var(--accent); background: var(--accent-surface); }
+
+/* ── Main area ──────────────────────────────────────────────────── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* ── Top bar / AI panel ─────────────────────────────────────────── */
+.topbar {
+  height: 40px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.brand {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--foreground);
+  letter-spacing: -0.02em;
+}
+.brand span { color: var(--accent); }
+
+.coach-pill {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.coach-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+/* ── Deck + Mixer row ───────────────────────────────────────────── */
+.decks-row {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Deck card ──────────────────────────────────────────────────── */
+.deck {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--card-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.deck-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.deck-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-surface);
+  border: 1px solid rgba(167,139,250,0.2);
+  padding: 2px 7px;
+  border-radius: var(--radius);
+}
+
+.deck-track-info { flex: 1; min-width: 0; }
+.deck-track-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.deck-track-artist {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.deck-empty {
+  font-size: 12px;
+  color: var(--subtle-foreground);
+  font-style: italic;
+}
+
+.deck-bpm {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--foreground);
+  letter-spacing: -0.04em;
+}
+
+/* ── Waveform ───────────────────────────────────────────────────── */
+.waveform-container {
+  height: 72px;
+  background: var(--surface-hover);
+  border-radius: var(--radius);
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+}
+.waveform-svg { width: 100%; height: 100%; }
+.waveform-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--subtle-foreground);
+}
+
+/* ── Transport ──────────────────────────────────────────────────── */
+.transport-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.btn-nudge {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  transition: all 120ms ease;
+}
+.btn-nudge:hover {
+  border-color: var(--ring);
+  color: var(--foreground);
+  background: var(--surface-hover);
+}
+
+.btn-play {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--muted-foreground);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 150ms ease;
+}
+.btn-play:hover {
+  border-color: var(--accent);
+  color: var(--foreground);
+  background: var(--accent-surface);
+}
+.btn-play.playing {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 16px var(--accent-glow);
+}
+
+/* ── Stem toggles ───────────────────────────────────────────────── */
+.stems-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.stem-btn {
+  padding: 6px 4px;
+  background: var(--accent-surface);
+  border: 1px solid rgba(167,139,250,0.2);
+  border-radius: var(--radius);
+  color: var(--accent);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  transition: all 120ms ease;
+}
+.stem-btn:hover { background: rgba(167,139,250,0.15); }
+.stem-btn.muted {
+  background: var(--surface-hover);
+  border-color: var(--border);
+  color: var(--subtle-foreground);
+}
+
+.stem-key {
+  display: block;
+  font-size: 8px;
+  color: inherit;
+  opacity: 0.6;
+  margin-top: 1px;
+}
+
+/* ── EQ + Volume ────────────────────────────────────────────────── */
+.controls-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.eq-section {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  padding: 8px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.eq-band {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  height: 72px;
+}
+
+.eq-label {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--subtle-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.eq-slider-wrap { flex: 1; display: flex; align-items: center; }
+
+input[type="range"].eq-v {
+  -webkit-appearance: none;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 4px;
+  height: 44px;
+  background: var(--input);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"].eq-v::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 8px;
+  background: var(--accent);
+  border-radius: 2px;
+  cursor: grab;
+}
+
+.eq-value {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--subtle-foreground);
+}
+
+.vol-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  min-width: 36px;
+}
+
+input[type="range"].vol-v {
+  -webkit-appearance: none;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 4px;
+  height: 52px;
+  background: linear-gradient(to top, var(--accent) 80%, var(--input) 100%);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  flex: 1;
+}
+input[type="range"].vol-v::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px; height: 8px;
+  background: var(--card-elevated);
+  border: 1.5px solid var(--ring);
+  border-radius: 3px;
+  cursor: grab;
+}
+
+/* ── Mixer ──────────────────────────────────────────────────────── */
+.mixer {
+  width: 108px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 10px;
+  background: var(--card-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  align-items: center;
+}
+
+.bpm-row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bpm-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.bpm-letter-a { font-size: 10px; font-weight: 700; color: var(--accent); }
+.bpm-letter-b { font-size: 10px; font-weight: 700; color: #60a5fa; }
+.bpm-val {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.btn-sync {
+  width: 100%;
+  padding: 5px 0;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  transition: all 120ms ease;
+}
+.btn-sync:hover { background: var(--accent-surface); }
+
+.master-label {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  color: var(--subtle-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+input[type="range"].master-v {
+  -webkit-appearance: none;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 4px;
+  height: 80px;
+  background: linear-gradient(to top, var(--accent), var(--input));
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"].master-v::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px; height: 8px;
+  background: var(--card-elevated);
+  border: 1.5px solid var(--ring);
+  border-radius: 3px;
+  cursor: grab;
+}
+
+.xfader-row { width: 100%; }
+.xfader-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+.xfader-a { font-size: 10px; font-weight: 700; color: var(--accent); }
+.xfader-b { font-size: 10px; font-weight: 700; color: #60a5fa; }
+
+input[type="range"].xfader {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 5px;
+  background: linear-gradient(to right, var(--accent), var(--subtle-foreground), #60a5fa);
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"].xfader::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px; height: 26px;
+  background: var(--card-elevated);
+  border: 1.5px solid var(--ring);
+  border-radius: var(--radius);
+  cursor: grab;
+}
+
+/* ── Keyboard hints ─────────────────────────────────────────────── */
+.kb-hints {
+  position: fixed;
+  bottom: 12px; right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  pointer-events: none;
+  opacity: 0.5;
+}
+.kb-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+}
+.kb-key {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--muted-foreground);
+}
+.kb-desc { color: var(--subtle-foreground); }
+
+</style>
+</head>
+<body>
+
+<!-- Library -->
+<div class="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-header-label">Library</div>
+    <input class="search-input" type="text" placeholder="Search tracks…" />
+  </div>
+
+  <div class="section-label">Recommended Next</div>
+
+  <div class="track-list">
+    <!-- Recommended -->
+    <div class="track-row active">
+      <div class="track-name">Birds and the Bees</div>
+      <div class="track-artist">Baby Keem</div>
+      <div class="track-chips">
+        <span class="chip bpm">BPM match</span>
+        <span class="chip">rap × house</span>
+      </div>
+    </div>
+    <div class="track-row">
+      <div class="track-name">Casino</div>
+      <div class="track-artist">Baby Keem</div>
+      <div class="track-chips">
+        <span class="chip bpm">BPM match</span>
+        <span class="chip">same genre</span>
+      </div>
+    </div>
+    <div class="track-row">
+      <div class="track-name">Latch</div>
+      <div class="track-artist">Disclosure</div>
+      <div class="track-chips">
+        <span class="chip bpm">BPM match</span>
+        <span class="chip">rap × house</span>
+      </div>
+    </div>
+    <div class="track-row">
+      <div class="track-name">White Noise</div>
+      <div class="track-artist">Disclosure</div>
+      <div class="track-chips">
+        <span class="chip bpm">BPM match</span>
+        <span class="chip">rap × house</span>
+      </div>
+    </div>
+
+    <!-- Divider -->
+    <div class="section-label" style="margin-top:4px;">All Tracks</div>
+
+    <div class="track-row">
+      <div class="track-name">Princess Going Digital</div>
+      <div class="track-artist">Amaarae</div>
+    </div>
+    <div class="track-row">
+      <div class="track-name">House Money</div>
+      <div class="track-artist">Baby Keem</div>
+    </div>
+    <div class="track-row">
+      <div class="track-name">Sunsleeper</div>
+      <div class="track-artist">Barry Cant Swim</div>
+    </div>
+    <div class="track-row">
+      <div class="track-name">WE ON GO</div>
+      <div class="track-artist">BIA</div>
+    </div>
+    <div class="track-row">
+      <div class="track-name">Glue</div>
+      <div class="track-artist">Bicep</div>
+    </div>
+    <div class="track-row">
+      <div class="track-name">Never Gonna Forget</div>
+      <div class="track-artist">Black Coffee</div>
+    </div>
+    <div class="track-row">
+      <div class="track-name">Breathe</div>
+      <div class="track-artist">CamelPhat</div>
+    </div>
+    <div class="track-row">
+      <div class="track-name">Controller</div>
+      <div class="track-artist">Channel Tres</div>
+    </div>
+    <div class="track-row">
+      <div class="track-name">Fuego</div>
+      <div class="track-artist">Channel Tres</div>
+    </div>
+    <div class="track-row">
+      <div class="track-name">Body</div>
+      <div class="track-artist">Don Toliver</div>
+    </div>
+    <div class="track-row">
+      <div class="track-name">Lose My Mind</div>
+      <div class="track-artist">Chris Lake</div>
+    </div>
+  </div>
+
+  <div style="padding:8px 12px; border-top: 1px solid var(--border);">
+    <div style="font-size:10px; color: var(--subtle-foreground);">90 / 90 tracks</div>
+  </div>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <span class="brand">mix<span>pilot</span></span>
+    <div class="coach-pill">
+      <span class="coach-dot"></span>
+      Load tracks to get started — your AI coach is watching
+    </div>
+  </div>
+
+  <!-- Decks row -->
+  <div class="decks-row">
+
+    <!-- Deck A -->
+    <div class="deck">
+      <div class="deck-header">
+        <span class="deck-badge">A</span>
+        <div class="deck-track-info">
+          <div class="deck-track-name">Superhero</div>
+          <div class="deck-track-artist">Metro Boomin</div>
+        </div>
+        <span class="deck-bpm">140.0</span>
+      </div>
+
+      <!-- Waveform -->
+      <div class="waveform-container">
+        <svg class="waveform-svg" viewBox="0 0 600 72" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="wvA" x1="0" x2="1" y1="0" y2="0">
+              <stop offset="0%" stop-color="#a78bfa" stop-opacity="1"/>
+              <stop offset="55%" stop-color="#a78bfa" stop-opacity="1"/>
+              <stop offset="55%" stop-color="#a78bfa" stop-opacity="0.25"/>
+              <stop offset="100%" stop-color="#a78bfa" stop-opacity="0.25"/>
+            </linearGradient>
+          </defs>
+          <script>
+            const bars = 120;
+            const svg = document.currentScript.parentElement;
+            for (let i = 0; i < bars; i++) {
+              const h = 6 + Math.random() * 54;
+              const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+              rect.setAttribute('x', i * (600/bars));
+              rect.setAttribute('width', 600/bars - 1);
+              rect.setAttribute('height', h);
+              rect.setAttribute('y', (72 - h) / 2);
+              rect.setAttribute('fill', 'url(#wvA)');
+              rect.setAttribute('rx', '1');
+              svg.appendChild(rect);
+            }
+            // cursor
+            const cur = document.createElementNS('http://www.w3.org/2000/svg','rect');
+            cur.setAttribute('x', 600*0.55 - 1);
+            cur.setAttribute('y', 0);
+            cur.setAttribute('width', 2);
+            cur.setAttribute('height', 72);
+            cur.setAttribute('fill', 'rgba(255,255,255,0.9)');
+            svg.appendChild(cur);
+          </script>
+        </svg>
+      </div>
+
+      <!-- Transport -->
+      <div class="transport-row">
+        <button class="btn-nudge">&lt;&lt;</button>
+        <button class="btn-play playing">
+          <svg width="16" height="16" viewBox="0 0 18 18" fill="currentColor">
+            <rect x="4" y="3" width="3.5" height="12" rx="1"/>
+            <rect x="10.5" y="3" width="3.5" height="12" rx="1"/>
+          </svg>
+        </button>
+        <button class="btn-nudge">&gt;&gt;</button>
+      </div>
+
+      <!-- Stems -->
+      <div class="stems-row">
+        <button class="stem-btn">VOX<span class="stem-key">Q</span></button>
+        <button class="stem-btn muted">DRM<span class="stem-key">W</span></button>
+        <button class="stem-btn">BAS<span class="stem-key">E</span></button>
+        <button class="stem-btn">OTH<span class="stem-key">R</span></button>
+      </div>
+
+      <!-- EQ + Volume -->
+      <div class="controls-row">
+        <div class="eq-section">
+          <div class="eq-band">
+            <span class="eq-label">HI</span>
+            <div class="eq-slider-wrap">
+              <input type="range" class="eq-v" min="-12" max="12" value="0" />
+            </div>
+            <span class="eq-value">0</span>
+          </div>
+          <div class="eq-band">
+            <span class="eq-label">MID</span>
+            <div class="eq-slider-wrap">
+              <input type="range" class="eq-v" min="-12" max="12" value="0" />
+            </div>
+            <span class="eq-value">0</span>
+          </div>
+          <div class="eq-band">
+            <span class="eq-label">LO</span>
+            <div class="eq-slider-wrap">
+              <input type="range" class="eq-v" min="-12" max="12" value="0" />
+            </div>
+            <span class="eq-value">0</span>
+          </div>
+        </div>
+        <div class="vol-section">
+          <span class="eq-label">VOL</span>
+          <input type="range" class="vol-v" min="0" max="1" step="0.01" value="0.8" />
+          <span class="eq-value">80</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mixer -->
+    <div class="mixer">
+      <div class="bpm-row">
+        <div class="bpm-item">
+          <span class="bpm-letter-a">A</span>
+          <span class="bpm-val">140</span>
+        </div>
+        <div class="bpm-item">
+          <span class="bpm-letter-b">B</span>
+          <span class="bpm-val">140</span>
+        </div>
+      </div>
+
+      <button class="btn-sync">SYNC</button>
+
+      <span class="master-label">Master</span>
+      <input type="range" class="master-v" min="0" max="1" step="0.01" value="1" />
+      <span class="eq-value" style="font-size:9px;font-family:var(--font-mono);color:var(--subtle-foreground)">100</span>
+
+      <div class="xfader-row">
+        <div class="xfader-labels">
+          <span class="xfader-a">A</span>
+          <span class="xfader-b">B</span>
+        </div>
+        <input type="range" class="xfader" min="0" max="1" step="0.01" value="0.5" />
+      </div>
+    </div>
+
+    <!-- Deck B -->
+    <div class="deck">
+      <div class="deck-header">
+        <span class="deck-badge" style="color:#60a5fa; background:rgba(96,165,250,0.08); border-color:rgba(96,165,250,0.2)">B</span>
+        <div class="deck-track-info">
+          <div class="deck-track-name">Lose My Mind</div>
+          <div class="deck-track-artist">Chris Lake</div>
+        </div>
+        <span class="deck-bpm">140.0</span>
+      </div>
+
+      <!-- Waveform -->
+      <div class="waveform-container">
+        <svg class="waveform-svg" viewBox="0 0 600 72" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="wvB" x1="0" x2="1" y1="0" y2="0">
+              <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.25"/>
+              <stop offset="100%" stop-color="#60a5fa" stop-opacity="0.25"/>
+            </linearGradient>
+          </defs>
+          <script>
+            const barsB = 120;
+            const svgB = document.currentScript.parentElement;
+            for (let i = 0; i < barsB; i++) {
+              const h = 6 + Math.random() * 54;
+              const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+              rect.setAttribute('x', i * (600/barsB));
+              rect.setAttribute('width', 600/barsB - 1);
+              rect.setAttribute('height', h);
+              rect.setAttribute('y', (72 - h) / 2);
+              rect.setAttribute('fill', 'url(#wvB)');
+              rect.setAttribute('rx', '1');
+              svgB.appendChild(rect);
+            }
+          </script>
+        </svg>
+      </div>
+
+      <!-- Transport -->
+      <div class="transport-row">
+        <button class="btn-nudge">&lt;&lt;</button>
+        <button class="btn-play">
+          <svg width="16" height="16" viewBox="0 0 18 18" fill="currentColor">
+            <path d="M5 3.5l10 5.5-10 5.5V3.5z"/>
+          </svg>
+        </button>
+        <button class="btn-nudge">&gt;&gt;</button>
+      </div>
+
+      <!-- Stems -->
+      <div class="stems-row">
+        <button class="stem-btn" style="color:#60a5fa; background:rgba(96,165,250,0.08); border-color:rgba(96,165,250,0.2)">VOX<span class="stem-key">U</span></button>
+        <button class="stem-btn" style="color:#60a5fa; background:rgba(96,165,250,0.08); border-color:rgba(96,165,250,0.2)">DRM<span class="stem-key">I</span></button>
+        <button class="stem-btn" style="color:#60a5fa; background:rgba(96,165,250,0.08); border-color:rgba(96,165,250,0.2)">BAS<span class="stem-key">O</span></button>
+        <button class="stem-btn" style="color:#60a5fa; background:rgba(96,165,250,0.08); border-color:rgba(96,165,250,0.2)">OTH<span class="stem-key">P</span></button>
+      </div>
+
+      <!-- EQ + Volume -->
+      <div class="controls-row">
+        <div class="eq-section">
+          <div class="eq-band">
+            <span class="eq-label">HI</span>
+            <div class="eq-slider-wrap">
+              <input type="range" class="eq-v" min="-12" max="12" value="0" />
+            </div>
+            <span class="eq-value">0</span>
+          </div>
+          <div class="eq-band">
+            <span class="eq-label">MID</span>
+            <div class="eq-slider-wrap">
+              <input type="range" class="eq-v" min="-12" max="12" value="0" />
+            </div>
+            <span class="eq-value">0</span>
+          </div>
+          <div class="eq-band">
+            <span class="eq-label">LO</span>
+            <div class="eq-slider-wrap">
+              <input type="range" class="eq-v" min="-12" max="12" value="0" />
+            </div>
+            <span class="eq-value">0</span>
+          </div>
+        </div>
+        <div class="vol-section">
+          <span class="eq-label">VOL</span>
+          <input type="range" class="vol-v" min="0" max="1" step="0.01" value="0.8" />
+          <span class="eq-value">80</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /decks-row -->
+</div><!-- /main -->
+
+<!-- KB hints -->
+<div class="kb-hints">
+  <div class="kb-row"><span class="kb-key">SPACE</span><span class="kb-desc">Play A</span></div>
+  <div class="kb-row"><span class="kb-key">ENTER</span><span class="kb-desc">Play B</span></div>
+  <div class="kb-row"><span class="kb-key">QWER</span><span class="kb-desc">Stems A</span></div>
+  <div class="kb-row"><span class="kb-key">UIOP</span><span class="kb-desc">Stems B</span></div>
+  <div class="kb-row"><span class="kb-key">← →</span><span class="kb-desc">Crossfader</span></div>
+  <div class="kb-row"><span class="kb-key">TAB</span><span class="kb-desc">Sync</span></div>
+</div>
+
+</body>
+</html>

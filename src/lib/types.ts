@@ -49,6 +49,8 @@ export interface DeckState {
   bpm: number;
   currentTime: number;
   duration: number;
+  /** Normalized waveform peak amplitudes (0–1), extracted from loaded stems. */
+  peaks: number[];
 }
 
 /** AI coach suggestion surfaced in the UI. */

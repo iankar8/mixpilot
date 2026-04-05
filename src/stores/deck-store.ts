@@ -21,6 +21,7 @@ function defaultDeckState(): DeckState {
     bpm: 0,
     currentTime: 0,
     duration: 0,
+    peaks: [],
   };
 }
 
@@ -52,6 +53,8 @@ interface DeckStoreState {
   setCrossfader: (value: number) => void;
   setBPM: (deckId: DeckId, bpm: number) => void;
   setCurrentTime: (deckId: DeckId, time: number) => void;
+  setPeaks: (deckId: DeckId, peaks: number[]) => void;
+  seekDeck: (deckId: DeckId, time: number) => void;
 
   /** Access the audio engine instances. Not serializable – treat as refs. */
   getEngine: (deckId: DeckId) => Deck;
@@ -220,5 +223,25 @@ export const useDeckStore = create<DeckStoreState>()((set, get) => ({
     set((s) => ({
       [key]: { ...s[key], currentTime: time },
     }));
+  },
+
+  // -----------------------------------------------------------------------
+  // Waveform peaks
+  // -----------------------------------------------------------------------
+
+  setPeaks: (deckId, peaks) => {
+    const key = deckKey(deckId);
+    set((s) => ({ [key]: { ...s[key], peaks } }));
+  },
+
+  // -----------------------------------------------------------------------
+  // Seek
+  // -----------------------------------------------------------------------
+
+  seekDeck: (deckId, time) => {
+    const key = deckKey(deckId);
+    const engine = getEngine(deckId);
+    engine.seek(time);
+    set((s) => ({ [key]: { ...s[key], currentTime: time } }));
   },
 }));

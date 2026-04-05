@@ -5,13 +5,13 @@ import { useDeckStore } from '../stores/deck-store';
 export function useKeyboard() {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Don't fire shortcuts when typing in the search input
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === 'INPUT' ||
+      // Don't fire shortcuts when typing in text inputs, but allow for range sliders
+      const target = e.target as HTMLInputElement;
+      const isTextInput =
+        (target.tagName === 'INPUT' && target.type !== 'range') ||
         target.tagName === 'TEXTAREA' ||
-        target.isContentEditable
-      ) {
+        target.isContentEditable;
+      if (isTextInput) {
         return;
       }
 

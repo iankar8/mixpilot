@@ -75,7 +75,7 @@ const ARTIST_GENRES: Record<string, Genre> = {
 };
 
 // Typical BPM ranges
-const BPM_ESTIMATES: Record<string, number> = {
+export const BPM_ESTIMATES: Record<string, number> = {
   // Rap (typically 80-100 BPM, or 140-160 trap)
   'Baby Keem': 140, 'BIA': 130, 'DaBaby': 140, 'DDG': 130,
   'Don Toliver': 130, 'Future': 140, 'Gunna': 135, 'J Cole': 90,

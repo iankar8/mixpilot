@@ -1,47 +1,71 @@
+// ---------------------------------------------------------------------------
+// mixpilot – Custom canvas waveform
+// ---------------------------------------------------------------------------
+// Reads peaks directly from Tone.js buffers (no WaveSurfer, no double-load).
+// Click anywhere to seek.
+// ---------------------------------------------------------------------------
+
 import { useRef, useEffect } from 'react';
-import WaveSurfer from 'wavesurfer.js';
 
 interface WaveformProps {
-  url?: string;
+  peaks?: number[];      // normalized 0–1 amplitude, one value per bar
+  progress?: number;     // 0–1 playback position (currentTime / duration)
   color?: string;
   height?: number;
+  onSeek?: (progress: number) => void;
 }
 
-export default function Waveform({ url, color = '#a78bfa', height = 80 }: WaveformProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const wavesurferRef = useRef<WaveSurfer | null>(null);
+export default function Waveform({
+  peaks = [],
+  progress = 0,
+  color = '#a78bfa',
+  height = 80,
+  onSeek,
+}: WaveformProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    const ws = WaveSurfer.create({
-      container: containerRef.current,
-      waveColor: color,
-      progressColor: color + 'cc',
-      barWidth: 2,
-      barGap: 1,
-      barRadius: 2,
-      cursorColor: '#fff',
-      cursorWidth: 1,
-      height,
-      normalize: true,
-      fillParent: true,
-      interact: true,
-      hideScrollbar: true,
-    });
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    wavesurferRef.current = ws;
+    const W = canvas.width;
+    const H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
 
-    return () => {
-      ws.destroy();
-      wavesurferRef.current = null;
-    };
-  }, [color, height]);
+    if (peaks.length === 0) return;
 
-  useEffect(() => {
-    if (!wavesurferRef.current || !url) return;
-    wavesurferRef.current.load(url);
-  }, [url]);
+    const barW = W / peaks.length;
+    const progressX = Math.floor(progress * W);
+
+    for (let i = 0; i < peaks.length; i++) {
+      const amp = peaks[i];
+      const x = Math.floor(i * barW);
+      const barH = Math.max(2, amp * H * 0.88);
+      const y = Math.floor((H - barH) / 2);
+      const played = x < progressX;
+
+      ctx.fillStyle = played ? color : color + '3a';
+      ctx.fillRect(x, y, Math.max(1, Math.floor(barW) - 1), Math.ceil(barH));
+    }
+
+    // Playhead cursor
+    if (progress > 0 && progress < 1) {
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillRect(progressX - 1, 0, 2, H);
+    }
+  }, [peaks, progress, color, height]);
+
+  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!onSeek || peaks.length === 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const p = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    onSeek(p);
+  };
+
+  const hasPeaks = peaks.length > 0;
 
   return (
     <div
@@ -51,26 +75,38 @@ export default function Waveform({ url, color = '#a78bfa', height = 80 }: Wavefo
         borderRadius: '6px',
         overflow: 'hidden',
         position: 'relative',
+        cursor: hasPeaks && onSeek ? 'pointer' : 'default',
       }}
     >
-      {/* Placeholder gradient when no URL loaded */}
-      {!url && (
+      {!hasPeaks && (
         <div
           style={{
             position: 'absolute',
             inset: 0,
-            background: `linear-gradient(90deg, transparent 0%, ${color}15 20%, ${color}25 50%, ${color}15 80%, transparent 100%)`,
+            background: `linear-gradient(90deg, transparent 0%, ${color}12 20%, ${color}22 50%, ${color}12 80%, transparent 100%)`,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
           }}
         >
-          <span style={{ color: 'var(--text-tertiary)', fontSize: '12px', fontFamily: 'ui-monospace, monospace' }}>
-            NO WAVEFORM
+          <span
+            style={{
+              color: 'var(--text-tertiary)',
+              fontSize: '12px',
+              fontFamily: 'ui-monospace, monospace',
+            }}
+          >
+            loading waveform...
           </span>
         </div>
       )}
-      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      <canvas
+        ref={canvasRef}
+        width={600}
+        height={height}
+        onClick={handleClick}
+        style={{ width: '100%', height: '100%', display: 'block' }}
+      />
     </div>
   );
 }

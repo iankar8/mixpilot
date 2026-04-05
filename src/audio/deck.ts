@@ -33,6 +33,8 @@ export class Deck {
 
   private _disposed = false;
   private _loading = false;
+  private _playStartContextTime = 0;
+  private _playStartOffset = 0;
 
   constructor(id: DeckId) {
     this.id = id;
@@ -77,6 +79,8 @@ export class Deck {
 
     // Tear down previous stems if any.
     this._disposeStems();
+    this._playStartOffset = 0;
+    this._playStartContextTime = 0;
 
     // Create players + channels for each stem and begin loading in parallel.
     const loadPromises: Promise<void>[] = [];
@@ -113,13 +117,14 @@ export class Deck {
   // Transport
   // -----------------------------------------------------------------------
 
-  /** Start all stem players simultaneously. */
+  /** Start all stem players simultaneously, resuming from last seek position. */
   play(): void {
     if (this._disposed) return;
     const now = Tone.now();
+    this._playStartContextTime = now;
     for (const player of this.players.values()) {
       if (player.loaded && player.state !== 'started') {
-        player.start(now);
+        player.start(now, this._playStartOffset);
       }
     }
   }
@@ -128,6 +133,7 @@ export class Deck {
   pause(): void {
     if (this._disposed) return;
     const now = Tone.now();
+    this._playStartOffset += now - this._playStartContextTime;
     for (const player of this.players.values()) {
       if (player.state === 'started') {
         player.stop(now);
@@ -139,6 +145,8 @@ export class Deck {
   stop(): void {
     if (this._disposed) return;
     const now = Tone.now();
+    this._playStartOffset = 0;
+    this._playStartContextTime = 0;
     for (const player of this.players.values()) {
       if (player.state === 'started') {
         player.stop(now);
@@ -213,6 +221,58 @@ export class Deck {
   // Playback rate (BPM sync)
   // -----------------------------------------------------------------------
 
+  /**
+   * Seek to a position in seconds.
+   * Stops and restarts players at the new offset if playing.
+   */
+  seek(time: number): void {
+    if (this._disposed) return;
+    const wasPlaying = this.isPlaying();
+    const now = Tone.now();
+    const offset = Math.max(0, time);
+
+    for (const player of this.players.values()) {
+      if (player.state === 'started') player.stop(now);
+    }
+
+    this._playStartOffset = offset;
+    this._playStartContextTime = now;
+
+    if (wasPlaying) {
+      for (const player of this.players.values()) {
+        if (player.loaded) player.start(now, offset);
+      }
+    }
+  }
+
+  /**
+   * Extract normalized waveform peaks from a loaded stem buffer.
+   * Returns an array of `numPeaks` values in [0, 1].
+   */
+  getPeaks(stem: StemType = 'drums', numPeaks = 500): number[] {
+    const player = this.players.get(stem);
+    const audioBuffer = player?.buffer?.get?.();
+    if (!audioBuffer) return [];
+
+    const channelData = audioBuffer.getChannelData(0);
+    const blockSize = Math.max(1, Math.floor(channelData.length / numPeaks));
+    const peaks: number[] = [];
+
+    for (let i = 0; i < numPeaks; i++) {
+      let max = 0;
+      const start = i * blockSize;
+      const end = Math.min(start + blockSize, channelData.length);
+      for (let j = start; j < end; j++) {
+        const abs = Math.abs(channelData[j]);
+        if (abs > max) max = abs;
+      }
+      peaks.push(max);
+    }
+
+    const maxPeak = Math.max(...peaks);
+    return maxPeak > 0 ? peaks.map((p) => p / maxPeak) : peaks;
+  }
+
   /** Set playback rate for all stems (1.0 = normal speed). */
   setPlaybackRate(rate: number): void {
     if (this._disposed) return;
@@ -225,24 +285,12 @@ export class Deck {
   // Time / duration
   // -----------------------------------------------------------------------
 
-  /** Current playback position in seconds (from the first loaded stem). */
+  /** Current playback position in seconds. */
   getCurrentTime(): number {
-    // Tone.Player doesn't expose a simple `currentTime` getter.
-    // We read context time relative to start; for a stopped player we return 0.
-    for (const player of this.players.values()) {
-      if (player.loaded) {
-        // If player is started, Tone exposes an internal `_state` but no public
-        // getter for elapsed time. We approximate via Tone.now() offset.
-        // A more accurate approach uses Tone.Transport; for MVP this is fine.
-        if (player.state === 'started') {
-          // Player doesn't directly expose elapsed. Return buffer duration as proxy
-          // until we hook up Transport-based tracking.
-          return 0; // Will be updated by the store's polling loop.
-        }
-        return 0;
-      }
+    if (this.isPlaying()) {
+      return this._playStartOffset + (Tone.now() - this._playStartContextTime);
     }
-    return 0;
+    return this._playStartOffset;
   }
 
   /** Duration of the loaded audio in seconds (longest stem). */

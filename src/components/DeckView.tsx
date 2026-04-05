@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Waveform from './Waveform';
 import StemToggles from './StemToggles';
 import type { DeckId, DeckState, StemType } from '../lib/types';
@@ -6,24 +6,43 @@ import type { DeckId, DeckState, StemType } from '../lib/types';
 interface DeckViewProps {
   deckId: DeckId;
   state: DeckState;
-  trackUrl?: string;
   onPlayPause: () => void;
   onStemToggle: (stem: StemType) => void;
   onVolumeChange: (volume: number) => void;
   onEQChange: (band: 'low' | 'mid' | 'high', value: number) => void;
+  onSeek: (progress: number) => void;
+  onNudge: (direction: 'forward' | 'back') => void;
+  onNudgeEnd: () => void;
 }
 
 export default function DeckView({
   deckId,
   state,
-  trackUrl,
   onPlayPause,
   onStemToggle,
   onVolumeChange,
   onEQChange,
+  onSeek,
+  onNudge,
+  onNudgeEnd,
 }: DeckViewProps) {
   const [hoverPlay, setHoverPlay] = useState(false);
+  const nudgeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasTrack = state.track !== null;
+
+  const startNudge = (direction: 'forward' | 'back') => {
+    if (!hasTrack) return;
+    onNudge(direction);
+    nudgeIntervalRef.current = setInterval(() => onNudge(direction), 80);
+  };
+
+  const stopNudge = () => {
+    if (nudgeIntervalRef.current) {
+      clearInterval(nudgeIntervalRef.current);
+      nudgeIntervalRef.current = null;
+    }
+    onNudgeEnd();
+  };
 
   return (
     <div
@@ -102,15 +121,39 @@ export default function DeckView({
         </span>
       </div>
 
-      {/* Waveform */}
+      {/* Waveform — peaks from Tone.js buffer, click to seek */}
       <Waveform
-        url={trackUrl}
+        peaks={state.peaks}
+        progress={state.duration > 0 ? state.currentTime / state.duration : 0}
         color={deckId === 'A' ? '#a78bfa' : '#60a5fa'}
         height={80}
+        onSeek={onSeek}
       />
 
-      {/* Play/Pause button */}
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
+      {/* Play/Pause + Nudge row */}
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px' }}>
+        {/* Nudge back */}
+        <button
+          onMouseDown={() => startNudge('back')}
+          onMouseUp={stopNudge}
+          onMouseLeave={stopNudge}
+          disabled={!hasTrack}
+          title="Hold to nudge back (slow down temporarily)"
+          style={{
+            width: '36px', height: '36px', borderRadius: '50%',
+            border: '1px solid var(--border)',
+            background: 'var(--surface)',
+            color: 'var(--text-secondary)',
+            cursor: hasTrack ? 'pointer' : 'not-allowed',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            opacity: hasTrack ? 1 : 0.3,
+            fontSize: '14px',
+            userSelect: 'none',
+          }}
+        >
+          {'<<'}
+        </button>
+
         <button
           data-tutorial={`deck-${deckId.toLowerCase()}-play`}
           onClick={onPlayPause}
@@ -152,6 +195,28 @@ export default function DeckView({
               <path d="M5 3.5l10 5.5-10 5.5V3.5z" />
             </svg>
           )}
+        </button>
+
+        {/* Nudge forward */}
+        <button
+          onMouseDown={() => startNudge('forward')}
+          onMouseUp={stopNudge}
+          onMouseLeave={stopNudge}
+          disabled={!hasTrack}
+          title="Hold to nudge forward (speed up temporarily)"
+          style={{
+            width: '36px', height: '36px', borderRadius: '50%',
+            border: '1px solid var(--border)',
+            background: 'var(--surface)',
+            color: 'var(--text-secondary)',
+            cursor: hasTrack ? 'pointer' : 'not-allowed',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            opacity: hasTrack ? 1 : 0.3,
+            fontSize: '14px',
+            userSelect: 'none',
+          }}
+        >
+          {'>>'}
         </button>
       </div>
 
