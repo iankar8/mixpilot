@@ -212,6 +212,60 @@ export interface MashupCandidate {
   source: string;
 }
 
+export interface RemixTrack extends Track {
+  hasStems: boolean;
+}
+
+export type RemixTrackStatus = 'idle' | 'preparing' | 'ready' | 'error';
+
+export interface RemixMoment {
+  id: string;
+  label: string;
+  start: number;
+  end: number;
+  kind: string;
+  confidence: number;
+}
+
+export interface RemixPad {
+  id: string;
+  name: string;
+  description: string;
+  start: number;
+  duration: number;
+  stemMix: StemState;
+  loop: boolean;
+  kind: string;
+}
+
+export interface RemixPlan {
+  source: string;
+  anchorIdea: string;
+  moments: RemixMoment[];
+  pads: RemixPad[];
+  arrangement: string[];
+  productionNotes: string[];
+  warning?: string;
+}
+
+export type RemixAnalysis = TrackAnalysisV2;
+
+export interface PreparedRemixTrack {
+  track: RemixTrack;
+  status: 'ready';
+  stemStatus: {
+    ready: boolean;
+    generated: boolean;
+    stemDir: string;
+  };
+  analysis: RemixAnalysis;
+  plan: RemixPlan;
+  cache: {
+    hit: boolean;
+    path: string;
+  };
+}
+
 /** AI coach suggestion surfaced in the UI. */
 export interface CoachSuggestion {
   id: string;

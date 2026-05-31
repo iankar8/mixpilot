@@ -10,7 +10,7 @@
 // ---------------------------------------------------------------------------
 
 import * as Tone from 'tone';
-import type { DeckId, StemType } from '../lib/types';
+import type { DeckId, StemState, StemType } from '../lib/types';
 import { STEM_TYPES } from '../lib/types';
 
 export class Deck {
@@ -196,6 +196,34 @@ export class Deck {
   isStemActive(stem: StemType): boolean {
     const ch = this.channels.get(stem);
     return ch ? !ch.mute : false;
+  }
+
+  /** Trigger a short region as a one-shot pad without interrupting main playback. */
+  triggerRegion(start: number, duration: number, stems: StemState, volumeDb = -2): void {
+    if (this._disposed) return;
+    const now = Tone.now();
+    const offset = Math.max(0, start);
+    const length = Math.max(0.1, duration);
+    const disposables: Array<Tone.Player | Tone.Channel> = [];
+
+    for (const stem of STEM_TYPES) {
+      if (!stems[stem]) continue;
+      const source = this.players.get(stem);
+      const buffer = source?.buffer;
+      if (!source?.loaded || !buffer) continue;
+
+      const player = new Tone.Player(buffer);
+      const channel = new Tone.Channel(volumeDb);
+      player.playbackRate = this._playbackRate;
+      player.connect(channel);
+      channel.connect(this.eq);
+      player.start(now, offset, length);
+      disposables.push(player, channel);
+    }
+
+    window.setTimeout(() => {
+      for (const node of disposables) node.dispose();
+    }, Math.ceil((length / Math.max(0.1, this._playbackRate) + 0.75) * 1000));
   }
 
   // -----------------------------------------------------------------------

@@ -19,6 +19,11 @@ import {
   saveCandidateCache,
 } from './lib/pairing-v2.mjs';
 import { enhanceCandidatesWithClaude } from './lib/model-v2.mjs';
+import {
+  REMIX_CACHE_PATH,
+  listLibraryTracks,
+  prepareRemixTrack,
+} from './lib/remix-lab.mjs';
 
 const execFileAsync = promisify(execFile);
 const PORT = Number(process.env.MIXMASH_SIDECAR_PORT || 8787);
@@ -433,11 +438,43 @@ const server = createServer(async (req, res) => {
           job: candidateJob,
           source: candidateCache.source || 'none',
         },
+        remixLab: {
+          cachePath: REMIX_CACHE_PATH,
+        },
         analysis: {
           ...analysisJob,
           cacheCount: Object.keys(cache.tracks).length,
         },
         claude: await claudeStatus(),
+      });
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/library-tracks') {
+      const artist = url.searchParams.get('artist') || undefined;
+      const tracks = await listLibraryTracks({ artist });
+      sendJson(req, res, 200, {
+        ok: true,
+        tracks,
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/prepare-remix-track') {
+      const payload = await readJson(req);
+      if (!payload.filename || typeof payload.filename !== 'string') {
+        sendJson(req, res, 400, { ok: false, error: 'Expected filename' });
+        return;
+      }
+
+      const prepared = await prepareRemixTrack(payload.filename, {
+        force: Boolean(payload.force),
+        claudeBin: CLAUDE_BIN,
+        model: CLAUDE_MODEL,
+      });
+      sendJson(req, res, 200, {
+        ok: true,
+        ...prepared,
       });
       return;
     }

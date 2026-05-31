@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useDeckStore } from '../stores/deck-store';
 import { initAudio } from '../audio/engine';
-import type { MashupScene } from '../lib/types';
+import type { MashupScene, RemixPad } from '../lib/types';
 
 function unlockAudio() {
   void initAudio().catch((err) => {
@@ -14,6 +14,8 @@ interface KeyboardHandlers {
   onSync?: () => void;
   scenes?: MashupScene[];
   onApplyScene?: (scene: MashupScene) => void;
+  pads?: RemixPad[];
+  onTriggerPad?: (pad: RemixPad) => void;
 }
 
 /** Keyboard shortcut handler for the mashup instrument. */
@@ -22,6 +24,8 @@ export function useKeyboard({
   onSync,
   scenes = [],
   onApplyScene,
+  pads = [],
+  onTriggerPad,
 }: KeyboardHandlers = {}) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -48,6 +52,15 @@ export function useKeyboard({
         e.preventDefault();
         onOpenSearch?.();
         return;
+      }
+
+      if (/^[1-8]$/.test(key) && pads.length && onTriggerPad) {
+        const pad = pads[Number(key) - 1];
+        if (pad) {
+          e.preventDefault();
+          onTriggerPad(pad);
+          return;
+        }
       }
 
       if (/^[1-4]$/.test(key)) {
@@ -152,5 +165,5 @@ export function useKeyboard({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onApplyScene, onOpenSearch, onSync, scenes]);
+  }, [onApplyScene, onOpenSearch, onSync, onTriggerPad, pads, scenes]);
 }

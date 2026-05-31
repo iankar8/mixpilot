@@ -1,4 +1,12 @@
-import type { MashupAnalysis, MashupCandidate, MashupScene, Track, TrackAnalysis } from './types';
+import type {
+  MashupAnalysis,
+  MashupCandidate,
+  MashupScene,
+  PreparedRemixTrack,
+  RemixTrack,
+  Track,
+  TrackAnalysis,
+} from './types';
 
 const SIDECAR_BASE = import.meta.env.VITE_MIXMASH_SIDECAR_URL || 'http://127.0.0.1:8787';
 
@@ -125,4 +133,23 @@ export async function loadCandidateSession(id: string): Promise<MashupCandidate>
     10_000,
   );
   return response.candidate;
+}
+
+export async function getLibraryTracks(artist = 'Drake'): Promise<RemixTrack[]> {
+  const params = new URLSearchParams();
+  if (artist) params.set('artist', artist);
+  const response = await getJson<{ ok: true; tracks: RemixTrack[] }>(
+    `/library-tracks?${params.toString()}`,
+    10_000,
+  );
+  return response.tracks;
+}
+
+export async function prepareRemixTrack(filename: string, force = false): Promise<PreparedRemixTrack> {
+  const response = await postJson<{ ok: true } & PreparedRemixTrack>(
+    '/prepare-remix-track',
+    { filename, force },
+    15 * 60_000,
+  );
+  return response;
 }

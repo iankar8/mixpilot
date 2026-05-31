@@ -1,95 +1,57 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Library, { TRACKS_WITH_BPM } from './components/Library';
-import DeckView from './components/DeckView';
-import Mixer from './components/Mixer';
-import KeyboardHints from './components/KeyboardHints';
-import CommandPalette from './components/CommandPalette';
-import MashupHeader from './components/MashupHeader';
-import SceneStrip from './components/SceneStrip';
-import PerformanceKeyboard from './components/PerformanceKeyboard';
-import ProductionPad from './components/ProductionPad';
-import MashupInbox from './components/MashupInbox';
-import { useDeckStore } from './stores/deck-store';
-import { useKeyboard } from './hooks/useKeyboard';
+import Waveform from './components/Waveform';
+import StemToggles from './components/StemToggles';
 import { initAudio } from './audio/engine';
-import { syncDecks } from './audio/sync';
-import {
-  analyzeTrackForMashup,
-  buildMashupAnalysis,
-  mashupAnalysisFromPair,
-  trackAnalysisFromV2,
-} from './lib/analysis';
-import { generateMashupScenes } from './lib/scenes';
-import {
-  getLibraryAnalysisV2Status,
-  getLibraryAnalysisStatus,
-  getMashupCandidates,
-  loadCandidateSession,
-  prepareMashupInbox,
-  startLibraryBackgroundAnalysis,
-  startLibraryBackgroundAnalysisV2,
-  suggestScenesWithSidecar,
-  type SceneStatus,
-} from './lib/sidecar';
-import type { DeckId, MashupAnalysis, MashupCandidate, MashupScene, SceneAutomationEvent, Track, TrackAnalysis } from './lib/types';
-import { getTrackUrl, getStemUrls } from './lib/types';
-import { BPM_ESTIMATES } from './lib/recommendations';
+import { useKeyboard } from './hooks/useKeyboard';
+import { useDeckStore } from './stores/deck-store';
+import { getLibraryTracks, prepareRemixTrack } from './lib/sidecar';
+import { getStemUrls } from './lib/types';
+import type { PreparedRemixTrack, RemixPad, RemixTrack, StemType } from './lib/types';
 
-function deckKey(id: DeckId): 'deckA' | 'deckB' {
-  return id === 'A' ? 'deckA' : 'deckB';
+const DUST_FILENAME = 'Drake - Dust.mp3';
+const ALL_STEMS = { vocals: true, drums: true, bass: true, other: true };
+
+function formatTime(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0:00';
+  const minutes = Math.floor(value / 60);
+  const seconds = Math.floor(value % 60).toString().padStart(2, '0');
+  return `${minutes}:${seconds}`;
+}
+
+function stemSummary(pad: RemixPad): string {
+  return Object.entries(pad.stemMix)
+    .filter(([, active]) => active)
+    .map(([stem]) => stem.slice(0, 3).toUpperCase())
+    .join(' + ') || 'MUTE';
+}
+
+function statusLabel(status: string, track: RemixTrack | null): string {
+  if (status === 'preparing') return track?.hasStems ? 'analyzing track' : 'separating stems';
+  if (status === 'ready') return 'remix lab ready';
+  if (status === 'error') return 'needs attention';
+  return track?.hasStems ? 'ready to analyze' : 'stems needed';
 }
 
 export default function App() {
   const audioInitRef = useRef(false);
-  const sceneTimersRef = useRef<number[]>([]);
+  const pollRef = useRef<ReturnType<typeof window.setInterval> | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [tracks, setTracks] = useState<RemixTrack[]>([]);
+  const [selectedTrack, setSelectedTrack] = useState<RemixTrack | null>(null);
+  const [prepared, setPrepared] = useState<PreparedRemixTrack | null>(null);
+  const [status, setStatus] = useState<'idle' | 'preparing' | 'ready' | 'error'>('idle');
+  const [error, setError] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [analyses, setAnalyses] = useState<Partial<Record<DeckId, TrackAnalysis>>>({});
-  const [mashup, setMashup] = useState<MashupAnalysis | null>(null);
-  const [modelScenes, setModelScenes] = useState<MashupScene[]>([]);
-  const [sceneStatus, setSceneStatus] = useState<SceneStatus>('fallback');
-  const [libraryAnalysisLabel, setLibraryAnalysisLabel] = useState('sidecar warming');
-  const [inboxStatusLabel, setInboxStatusLabel] = useState('preparing analysis');
-  const [mashupCandidates, setMashupCandidates] = useState<MashupCandidate[]>([]);
-  const [activeCandidate, setActiveCandidate] = useState<MashupCandidate | null>(null);
-  const [loadingCandidateId, setLoadingCandidateId] = useState<string | null>(null);
-  const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [activePadId, setActivePadId] = useState<string | null>(null);
 
-  const deckA = useDeckStore((s) => s.deckA);
-  const deckB = useDeckStore((s) => s.deckB);
-  const crossfader = useDeckStore((s) => s.crossfader);
-  const masterVolume = useDeckStore((s) => s.masterVolume);
+  const deck = useDeckStore((s) => s.deckA);
   const setDeckTrack = useDeckStore((s) => s.setDeckTrack);
   const setDeckPlaying = useDeckStore((s) => s.setDeckPlaying);
   const toggleStem = useDeckStore((s) => s.toggleStem);
   const setStemState = useDeckStore((s) => s.setStemState);
-  const setVolume = useDeckStore((s) => s.setVolume);
-  const setEQ = useDeckStore((s) => s.setEQ);
-  const setCrossfader = useDeckStore((s) => s.setCrossfader);
-  const setPlaybackRate = useDeckStore((s) => s.setPlaybackRate);
-  const getEngine = useDeckStore((s) => s.getEngine);
   const seekDeck = useDeckStore((s) => s.seekDeck);
-
-  const defaultDeck: DeckId = deckA.track && !deckB.track ? 'B' : 'A';
-  const readyMashup = useMemo(() => {
-    if (!deckA.track || !deckB.track || !analyses.A || !analyses.B) return null;
-    return buildMashupAnalysis(deckA, deckB, analyses.A, analyses.B);
-  }, [analyses.A, analyses.B, deckA, deckB]);
-  const visibleMashup = mashup ?? readyMashup;
-  const scenes = useMemo(
-    () => modelScenes.length > 0 ? modelScenes : generateMashupScenes(visibleMashup, deckA.track, deckB.track),
-    [deckA.track, deckB.track, modelScenes, visibleMashup],
-  );
-  const sceneStatusLabel = activeCandidate
-    ? `timed · ${activeCandidate.source.includes('claude') ? 'claude labeled' : 'local dsp'}`
-    : sceneStatus === 'model'
-      ? 'claude sidecar'
-      : sceneStatus === 'loading'
-        ? 'asking claude'
-        : sceneStatus === 'offline'
-          ? 'browser fallback'
-          : sceneStatus === 'error'
-            ? 'fallback after error'
-            : 'browser fallback';
+  const getEngine = useDeckStore((s) => s.getEngine);
 
   const ensureAudio = useCallback(async () => {
     if (!audioInitRef.current) {
@@ -98,540 +60,340 @@ export default function App() {
     }
   }, []);
 
-  const clearSceneTimers = useCallback(() => {
-    for (const timer of sceneTimersRef.current) {
-      window.clearTimeout(timer);
-    }
-    sceneTimersRef.current = [];
-  }, []);
-
-  const applySceneEvent = useCallback(
-    (event: SceneAutomationEvent) => {
-      if (event.action === 'setCrossfader' && typeof event.value === 'number') {
-        setCrossfader(event.value);
-        return;
-      }
-
-      if (event.action === 'setStem' && event.deck && event.stem && typeof event.active === 'boolean') {
-        const current = useDeckStore.getState()[deckKey(event.deck)].stems;
-        setStemState(event.deck, { ...current, [event.stem]: event.active });
-      }
-    },
-    [setCrossfader, setStemState],
-  );
-
-  const scheduleSceneEvents = useCallback(
-    (scene: MashupScene) => {
-      clearSceneTimers();
-      if (!scene.events?.length) return;
-      const bpm = scene.playbackRates ? (mashup?.targetBpm ?? readyMashup?.targetBpm ?? 128) : 128;
-      const barMs = (60_000 / Math.max(1, bpm)) * 4;
-
-      for (const event of scene.events) {
-        const delay = Math.max(0, (event.atBar - 1) * barMs);
-        const timer = window.setTimeout(() => applySceneEvent(event), delay);
-        sceneTimersRef.current.push(timer);
-      }
-    },
-    [applySceneEvent, clearSceneTimers, mashup?.targetBpm, readyMashup?.targetBpm],
-  );
-
-  const handleApplyScene = useCallback(
-    (scene: MashupScene) => {
-      if (scene.playbackRates) {
-        setPlaybackRate('A', scene.playbackRates.A, visibleMashup?.targetBpm);
-        setPlaybackRate('B', scene.playbackRates.B, visibleMashup?.targetBpm);
-      }
-      if (scene.startOffsets) {
-        seekDeck('A', scene.startOffsets.A);
-        seekDeck('B', scene.startOffsets.B);
-      }
-      setStemState('A', scene.deckAStems);
-      setStemState('B', scene.deckBStems);
-      setCrossfader(scene.crossfader);
-      setActiveSceneId(scene.id);
-      scheduleSceneEvents(scene);
-    },
-    [scheduleSceneEvents, seekDeck, setCrossfader, setPlaybackRate, setStemState, visibleMashup?.targetBpm],
-  );
-
-  const requestModelScenes = useCallback(
-    async (
-      pair: MashupAnalysis,
-      trackA: Track,
-      trackB: Track,
-      analysisA: TrackAnalysis,
-      analysisB: TrackAnalysis,
-    ) => {
-      setSceneStatus('loading');
-      try {
-        const nextScenes = await suggestScenesWithSidecar({
-          trackA,
-          trackB,
-          analysisA,
-          analysisB,
-          mashup: pair,
-        });
-        setModelScenes(nextScenes);
-        setActiveSceneId(null);
-        setSceneStatus('model');
-      } catch (error) {
-        console.warn('[mixmash] sidecar scene generation unavailable', error);
-        setModelScenes([]);
-        setSceneStatus('offline');
-      }
-    },
-    [],
-  );
-
-  const handleSync = useCallback(async () => {
-    void ensureAudio().catch((err) => {
-      console.warn('[mixmash] Audio unlock deferred until the next gesture', err);
-    });
-
-    const state = useDeckStore.getState();
-    const analysisA = analyses.A;
-    const analysisB = analyses.B;
-    if (!state.deckA.track || !state.deckB.track || !analysisA || !analysisB) return;
-
-    const pair = buildMashupAnalysis(state.deckA, state.deckB, analysisA, analysisB);
-    const engineA = getEngine('A');
-    const engineB = getEngine('B');
-
-    syncDecks(engineA, engineB, pair.targetBpm, analysisA.bpm, analysisB.bpm);
-    setPlaybackRate('A', pair.deckARate, pair.targetBpm);
-    setPlaybackRate('B', pair.deckBRate, pair.targetBpm);
-    seekDeck('B', pair.deckBSeek);
-
-    setMashup({ ...pair, status: 'synced' });
-    void requestModelScenes({ ...pair, status: 'synced' }, state.deckA.track, state.deckB.track, analysisA, analysisB);
-  }, [analyses.A, analyses.B, ensureAudio, getEngine, requestModelScenes, seekDeck, setPlaybackRate]);
-
-  useKeyboard({
-    onOpenSearch: () => setPaletteOpen(true),
-    onSync: handleSync,
-    scenes,
-    onApplyScene: handleApplyScene,
-  });
-
-  const handleLoadTrack = useCallback(
-    async (track: Track, targetDeck: DeckId) => {
-      const bpm = track.bpm ?? BPM_ESTIMATES[track.artist] ?? 128;
-      const trackWithBpm = { ...track, bpm };
-
-      setDeckTrack(targetDeck, trackWithBpm);
-      setMashup(null);
-      setModelScenes([]);
-      setSceneStatus('fallback');
-      setActiveCandidate(null);
-      clearSceneTimers();
-      setActiveSceneId(null);
-      setAnalyses((current) => {
-        const next = { ...current };
-        delete next[targetDeck];
-        return next;
-      });
-
-      void ensureAudio().catch((err) => {
-        console.warn('[mixmash] Audio unlock deferred until playback', err);
-      });
-
-      const engine = getEngine(targetDeck);
-      const stemUrls = getStemUrls(track.filename);
-
-      try {
-        await engine.loadStems(stemUrls);
-        console.log(`[mixmash] Loaded stems for ${track.name} on Deck ${targetDeck}`);
-      } catch (err) {
-        console.warn(`[mixmash] Stems not available for ${track.name}, loading full track`, err);
-        const fullUrl = getTrackUrl(track.filename);
-        try {
-          await engine.loadStems({
-            vocals: fullUrl,
-            drums: fullUrl,
-            bass: fullUrl,
-            other: fullUrl,
-          });
-          console.log(`[mixmash] Loaded full track for ${track.name} on Deck ${targetDeck}`);
-        } catch (fallbackErr) {
-          console.error(`[mixmash] Failed to load track ${track.name}`, fallbackErr);
-        }
-      }
-
-      const duration = engine.getDuration();
-      const peaks = engine.getPeaks('drums', 500);
-      const key = deckKey(targetDeck);
-      useDeckStore.setState((s) => ({
-        [key]: { ...s[key], duration, bpm, peaks, playbackRate: 1 },
-      }));
-
-      const deckState = useDeckStore.getState()[key];
-      const analysis = await analyzeTrackForMashup(trackWithBpm, deckState);
-      setAnalyses((current) => ({ ...current, [targetDeck]: analysis }));
-    },
-    [clearSceneTimers, ensureAudio, getEngine, setDeckTrack],
-  );
-
-  const loadCandidateDeck = useCallback(
-    async (
-      track: Track,
-      targetDeck: DeckId,
-      analysis: MashupCandidate['analysisA'],
-      startOffset: number,
-      playbackRate: number,
-      targetBpm: number,
-    ) => {
-      const trackWithBpm = {
-        ...track,
-        bpm: analysis.bpm.resolved,
-        duration: analysis.duration,
-      };
-      setDeckTrack(targetDeck, trackWithBpm);
-
-      const engine = getEngine(targetDeck);
-      const stemUrls = getStemUrls(track.filename);
-
-      try {
-        await engine.loadStems(stemUrls);
-      } catch {
-        const fullUrl = getTrackUrl(track.filename);
-        await engine.loadStems({
-          vocals: fullUrl,
-          drums: fullUrl,
-          bass: fullUrl,
-          other: fullUrl,
-        });
-      }
-
-      const duration = engine.getDuration() || analysis.duration;
-      const peaks = engine.getPeaks('drums', 500);
-      const key = deckKey(targetDeck);
-      useDeckStore.setState((state) => ({
-        [key]: {
-          ...state[key],
-          duration,
-          bpm: analysis.bpm.resolved,
-          peaks,
-          playbackRate: 1,
-        },
-      }));
-
-      setPlaybackRate(targetDeck, playbackRate, targetBpm);
-      seekDeck(targetDeck, startOffset);
-    },
-    [getEngine, seekDeck, setDeckTrack, setPlaybackRate],
-  );
-
-  const handleLoadCandidate = useCallback(
-    async (candidate: MashupCandidate) => {
-      clearSceneTimers();
-      setLoadingCandidateId(candidate.id);
-      try {
-        await ensureAudio();
-        const session = await loadCandidateSession(candidate.id).catch(() => candidate);
-
-        setActiveCandidate(session);
-        setMashup(mashupAnalysisFromPair(session.pair, session.warnings));
-        setAnalyses({
-          A: trackAnalysisFromV2(session.analysisA),
-          B: trackAnalysisFromV2(session.analysisB),
-        });
-        setModelScenes(session.scenes);
-        setSceneStatus(session.source.includes('claude') ? 'model' : 'fallback');
-
-        await Promise.all([
-          loadCandidateDeck(
-            session.trackA,
-            'A',
-            session.analysisA,
-            session.pair.deckAStart,
-            session.pair.deckARate,
-            session.pair.targetBpm,
-          ),
-          loadCandidateDeck(
-            session.trackB,
-            'B',
-            session.analysisB,
-            session.pair.deckBStart,
-            session.pair.deckBRate,
-            session.pair.targetBpm,
-          ),
-        ]);
-
-        const firstScene = session.scenes[0];
-        if (firstScene) {
-          setStemState('A', firstScene.deckAStems);
-          setStemState('B', firstScene.deckBStems);
-          setCrossfader(firstScene.crossfader);
-          setActiveSceneId(firstScene.id);
-        }
-
-        setDeckPlaying('A', true);
-        setDeckPlaying('B', true);
-      } catch (error) {
-        console.warn('[mixmash] failed to load candidate session', error);
-      } finally {
-        setLoadingCandidateId(null);
-      }
-    },
-    [
-      clearSceneTimers,
-      ensureAudio,
-      loadCandidateDeck,
-      setCrossfader,
-      setDeckPlaying,
-      setStemState,
-    ],
-  );
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const state = useDeckStore.getState();
-      if (state.deckA.isPlaying) {
-        state.setCurrentTime('A', state.getEngine('A').getCurrentTime());
-      }
-      if (state.deckB.isPlaying) {
-        state.setCurrentTime('B', state.getEngine('B').getCurrentTime());
-      }
-    }, 100);
-    return () => clearInterval(interval);
-  }, []);
-
-  const refreshMashupInbox = useCallback(async () => {
-    setInboxStatusLabel('preparing inbox');
-    try {
-      const response = await prepareMashupInbox(TRACKS_WITH_BPM);
-      setMashupCandidates(response.candidates);
-      setInboxStatusLabel(
-        response.candidates.length
-          ? `${response.candidates.length} candidates · ${response.source ?? 'local'}`
-          : response.status === 'analysis-running'
-            ? 'analysis running'
-            : 'no strong candidates yet',
-      );
-    } catch (error) {
-      console.warn('[mixmash] mashup inbox unavailable', error);
-      setInboxStatusLabel('inbox offline');
-    }
+  const loadTracks = useCallback(async () => {
+    const libraryTracks = await getLibraryTracks('Drake');
+    setTracks(libraryTracks);
+    setSelectedTrack((current) => (
+      current
+        ? libraryTracks.find((item) => item.filename === current.filename) ?? current
+        : libraryTracks.find((item) => item.filename === DUST_FILENAME) ?? libraryTracks[0] ?? null
+    ));
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    let interval: ReturnType<typeof window.setInterval> | null = null;
 
-    async function startBackgroundAnalysis() {
-      try {
-        void startLibraryBackgroundAnalysis(TRACKS_WITH_BPM).catch(() => undefined);
-        const v2Start = await startLibraryBackgroundAnalysisV2(TRACKS_WITH_BPM);
+    getLibraryTracks('Drake')
+      .then((libraryTracks) => {
         if (cancelled) return;
-        setLibraryAnalysisLabel(
-          v2Start.running
-            ? `v2 ${v2Start.completed}/${v2Start.total}`
-            : `v2 cache ${v2Start.cacheCount}`,
-        );
-        await refreshMashupInbox();
-
-        interval = window.setInterval(async () => {
-          try {
-            const [status, candidates] = await Promise.all([
-              getLibraryAnalysisV2Status(),
-              getMashupCandidates(),
-            ]);
-            if (cancelled) return;
-
-            if (status.running) {
-              setLibraryAnalysisLabel(`v2 ${status.completed}/${status.total}`);
-              setInboxStatusLabel(`analyzing ${status.completed}/${status.total}`);
-            } else {
-              setLibraryAnalysisLabel(`v2 cache ${status.cacheCount}`);
-              if (candidates.candidates.length) {
-                setMashupCandidates(candidates.candidates);
-                setInboxStatusLabel(`${candidates.candidates.length} candidates · ${candidates.source ?? 'local'}`);
-              } else {
-                await refreshMashupInbox();
-              }
-            }
-          } catch {
-            if (!cancelled) {
-              setLibraryAnalysisLabel('sidecar offline');
-              setInboxStatusLabel('inbox offline');
-            }
-          }
-        }, 3000);
-      } catch {
-        if (!cancelled) {
-          try {
-            const legacy = await getLibraryAnalysisStatus();
-            setLibraryAnalysisLabel(`legacy cache ${legacy.cacheCount}`);
-          } catch {
-            setLibraryAnalysisLabel('sidecar offline');
-          }
-          setInboxStatusLabel('analysis v2 offline');
-        }
-      }
-    }
-
-    void startBackgroundAnalysis();
+        setTracks(libraryTracks);
+        setSelectedTrack(libraryTracks.find((item) => item.filename === DUST_FILENAME) ?? libraryTracks[0] ?? null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : String(err));
+        setStatus('error');
+        setSelectedTrack({
+          id: 'drake-dust',
+          artist: 'Drake',
+          name: 'Dust',
+          filename: DUST_FILENAME,
+          hasStems: false,
+        });
+      });
 
     return () => {
       cancelled = true;
-      if (interval) window.clearInterval(interval);
-      clearSceneTimers();
     };
-  }, [clearSceneTimers, refreshMashupInbox]);
+  }, []);
 
-  const handlePlayPause = useCallback(
-    async (id: DeckId) => {
-      void ensureAudio().catch((err) => {
-        console.warn('[mixmash] Audio unlock deferred until the next gesture', err);
-      });
-      const state = useDeckStore.getState();
-      const deck = id === 'A' ? state.deckA : state.deckB;
-      if (!deck.isPlaying && (!deck.track || deck.duration <= 0)) return;
-      setDeckPlaying(id, !deck.isPlaying);
+  useEffect(() => {
+    if (pollRef.current) window.clearInterval(pollRef.current);
+    pollRef.current = window.setInterval(() => {
+      const engine = getEngine('A');
+      useDeckStore.getState().setCurrentTime('A', engine.getCurrentTime());
+    }, 250);
+    return () => {
+      if (pollRef.current) window.clearInterval(pollRef.current);
+    };
+  }, [getEngine]);
+
+  useEffect(() => {
+    if (paletteOpen) {
+      window.setTimeout(() => searchInputRef.current?.focus(), 0);
+    }
+  }, [paletteOpen]);
+
+  const loadPreparedTrack = useCallback(
+    async (nextPrepared: PreparedRemixTrack) => {
+      const bpm = nextPrepared.analysis.bpm.resolved;
+      const track = {
+        ...nextPrepared.track,
+        bpm,
+        duration: nextPrepared.analysis.duration,
+      };
+      const engine = getEngine('A');
+
+      setDeckPlaying('A', false);
+      setDeckTrack('A', track);
+      await engine.loadStems(getStemUrls(track.filename));
+
+      const duration = engine.getDuration() || nextPrepared.analysis.duration;
+      const peaks = engine.getPeaks('drums', 700);
+      useDeckStore.setState((state) => ({
+        deckA: {
+          ...state.deckA,
+          duration,
+          bpm,
+          peaks,
+          currentTime: 0,
+          playbackRate: 1,
+        },
+      }));
+      setStemState('A', ALL_STEMS);
     },
-    [ensureAudio, setDeckPlaying],
+    [getEngine, setDeckPlaying, setDeckTrack, setStemState],
   );
 
-  const handleNudge = useCallback(
-    (id: DeckId, direction: 'forward' | 'back') => {
-      const engine = getEngine(id);
-      const state = useDeckStore.getState();
-      const deck = id === 'A' ? state.deckA : state.deckB;
-      const baseRate = deck.playbackRate || 1;
-      engine.setPlaybackRate(baseRate * (direction === 'forward' ? 1.08 : 0.92));
+  const handlePrepareTrack = useCallback(
+    async (force = false) => {
+      if (!selectedTrack) return;
+      setStatus('preparing');
+      setError(null);
+      setActivePadId(null);
+
+      try {
+        const nextPrepared = await prepareRemixTrack(selectedTrack.filename, force);
+        await loadPreparedTrack(nextPrepared);
+        setPrepared(nextPrepared);
+        setSelectedTrack(nextPrepared.track);
+        setStatus('ready');
+        void loadTracks();
+      } catch (err) {
+        setStatus('error');
+        setError(err instanceof Error ? err.message : String(err));
+      }
     },
-    [getEngine],
+    [loadPreparedTrack, loadTracks, selectedTrack],
   );
 
-  const handleNudgeEnd = useCallback(
-    (id: DeckId) => {
-      const engine = getEngine(id);
-      const state = useDeckStore.getState();
-      const deck = id === 'A' ? state.deckA : state.deckB;
-      engine.setPlaybackRate(deck.playbackRate || 1);
+  const handleSelectTrack = useCallback((track: RemixTrack) => {
+    setSelectedTrack(track);
+    setPrepared(null);
+    setStatus('idle');
+    setError(null);
+    setActivePadId(null);
+    setDeckPlaying('A', false);
+    setPaletteOpen(false);
+  }, [setDeckPlaying]);
+
+  const handlePlayPause = useCallback(async () => {
+    if (status !== 'ready' || deck.duration <= 0) return;
+    await ensureAudio();
+    setDeckPlaying('A', !deck.isPlaying);
+  }, [deck.duration, deck.isPlaying, ensureAudio, setDeckPlaying, status]);
+
+  const handleTriggerPad = useCallback(
+    async (pad: RemixPad) => {
+      if (status !== 'ready') return;
+      await ensureAudio();
+      getEngine('A').triggerRegion(pad.start, pad.duration, pad.stemMix);
+      setActivePadId(pad.id);
+      window.setTimeout(() => {
+        setActivePadId((current) => (current === pad.id ? null : current));
+      }, Math.min(2400, Math.max(700, pad.duration * 300)));
     },
-    [getEngine],
+    [ensureAudio, getEngine, status],
   );
 
-  const effectiveProductionBpm = visibleMashup?.targetBpm ?? deckA.bpm ?? deckB.bpm ?? 128;
+  useKeyboard({
+    onOpenSearch: () => setPaletteOpen(true),
+    pads: prepared?.plan.pads ?? [],
+    onTriggerPad: handleTriggerPad,
+  });
+
+  const filteredTracks = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return tracks;
+    return tracks.filter((track) => (
+      track.name.toLowerCase().includes(query) ||
+      track.artist.toLowerCase().includes(query)
+    ));
+  }, [search, tracks]);
+
+  const prepareDisabled = status === 'preparing' || !selectedTrack;
+  const plan = prepared?.plan;
+  const analysis = prepared?.analysis;
 
   return (
-    <div className="app-shell" onClick={ensureAudio}>
-      <Library
-        onLoadTrack={handleLoadTrack}
-        deckALoaded={deckA.track !== null}
-        deckBLoaded={deckB.track !== null}
-        currentTrackA={deckA.track}
-        currentTrackB={deckB.track}
-      />
-
-      <main className="workspace">
-        <MashupHeader
-          deckA={deckA}
-          deckB={deckB}
-          analysisA={analyses.A}
-          analysisB={analyses.B}
-          mashup={visibleMashup}
-          sidecarLabel={libraryAnalysisLabel}
-          onOpenSearch={() => setPaletteOpen(true)}
-          onSync={handleSync}
-        />
-
-        <div className="workspace-body custom-scrollbar">
-          {!activeCandidate ? (
-            <MashupInbox
-              candidates={mashupCandidates}
-              statusLabel={inboxStatusLabel}
-              loadingCandidateId={loadingCandidateId}
-              onRefresh={refreshMashupInbox}
-              onLoadCandidate={handleLoadCandidate}
-            />
-          ) : (
-            <>
-              <div className="active-candidate-strip">
-                <span>
-                  <strong>{activeCandidate.title}</strong>
-                  {activeCandidate.subtitle}
-                </span>
-                <button
-                  className="ghost-button"
-                  onClick={() => {
-                    clearSceneTimers();
-                    setActiveCandidate(null);
-                    setDeckPlaying('A', false);
-                    setDeckPlaying('B', false);
-                  }}
-                >
-                  inbox
-                </button>
-              </div>
-
-              <section className="deck-rig">
-                <DeckView
-                  deckId="A"
-                  state={deckA}
-                  onPlayPause={() => handlePlayPause('A')}
-                  onStemToggle={(stem) => toggleStem('A', stem)}
-                  onVolumeChange={(v) => setVolume('A', v)}
-                  onEQChange={(band, val) => setEQ('A', band, val)}
-                  onSeek={(p) => seekDeck('A', p * deckA.duration)}
-                  onNudge={(dir) => handleNudge('A', dir)}
-                  onNudgeEnd={() => handleNudgeEnd('A')}
-                />
-
-                <Mixer
-                  crossfader={crossfader}
-                  masterVolume={masterVolume}
-                  bpmA={deckA.bpm}
-                  bpmB={deckB.bpm}
-                  onCrossfaderChange={setCrossfader}
-                  onMasterVolumeChange={(v) => {
-                    useDeckStore.setState({ masterVolume: v });
-                  }}
-                  onSync={handleSync}
-                />
-
-                <DeckView
-                  deckId="B"
-                  state={deckB}
-                  onPlayPause={() => handlePlayPause('B')}
-                  onStemToggle={(stem) => toggleStem('B', stem)}
-                  onVolumeChange={(v) => setVolume('B', v)}
-                  onEQChange={(band, val) => setEQ('B', band, val)}
-                  onSeek={(p) => seekDeck('B', p * deckB.duration)}
-                  onNudge={(dir) => handleNudge('B', dir)}
-                  onNudgeEnd={() => handleNudgeEnd('B')}
-                />
-              </section>
-
-              <SceneStrip
-                scenes={scenes}
-                activeSceneId={activeSceneId}
-                statusLabel={sceneStatusLabel}
-                onApplyScene={handleApplyScene}
-              />
-
-              <div className="bottom-instrument-grid">
-                <PerformanceKeyboard
-                  scenes={scenes}
-                  activeSceneId={activeSceneId}
-                  onApplyScene={handleApplyScene}
-                />
-                <ProductionPad bpm={effectiveProductionBpm} />
-              </div>
-            </>
-          )}
+    <div className="remix-shell">
+      <aside className="remix-library" aria-label="Iceman track library">
+        <div className="remix-brand">
+          <div className="brand-name">mixmash</div>
+          <div className="brand-subtitle">Iceman Remix Lab</div>
         </div>
+
+        <button className="library-search-button" onClick={() => setPaletteOpen(true)}>
+          Search Iceman tracks
+        </button>
+
+        <div className="track-list">
+          {tracks.map((track) => (
+            <button
+              key={track.filename}
+              className={`remix-track-row ${selectedTrack?.filename === track.filename ? 'remix-track-row-active' : ''}`}
+              onClick={() => handleSelectTrack(track)}
+            >
+              <span>
+                <strong>{track.name}</strong>
+                <small>{formatTime(track.duration ?? 0)}</small>
+              </span>
+              <em>{track.hasStems ? 'stems' : 'prep'}</em>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <main className="remix-workspace">
+        <header className="remix-topbar">
+          <div>
+            <div className="section-kicker">single-song remix lab</div>
+            <h1>{selectedTrack?.name ?? 'Choose a track'}</h1>
+            <p>{selectedTrack?.artist ?? 'Drake'} · {statusLabel(status, selectedTrack)}</p>
+          </div>
+          <div className="remix-actions">
+            <button className="ghost-button" onClick={() => void handlePrepareTrack(true)} disabled={prepareDisabled}>
+              Rebuild
+            </button>
+            <button className="primary-button" onClick={() => void handlePrepareTrack(false)} disabled={prepareDisabled}>
+              {status === 'preparing' ? 'Preparing...' : selectedTrack?.hasStems ? 'Analyze' : 'Prepare Stems'}
+            </button>
+          </div>
+        </header>
+
+        {error && <div className="remix-alert">{error}</div>}
+
+        <section className="remix-hero">
+          <div className="remix-transport">
+            <button className={`remix-play ${deck.isPlaying ? 'remix-play-active' : ''}`} onClick={() => void handlePlayPause()} disabled={status !== 'ready'}>
+              {deck.isPlaying ? 'Pause' : 'Play'}
+            </button>
+            <div className="remix-readout">
+              <strong>{deck.bpm ? `${deck.bpm.toFixed(0)} BPM` : '--- BPM'}</strong>
+              <span>{formatTime(deck.currentTime)} / {formatTime(deck.duration || analysis?.duration || selectedTrack?.duration || 0)}</span>
+            </div>
+          </div>
+
+          <Waveform
+            peaks={deck.peaks}
+            progress={deck.duration > 0 ? deck.currentTime / deck.duration : 0}
+            color="#f3c85f"
+            height={124}
+            onSeek={(progress) => {
+              if (deck.duration > 0) seekDeck('A', progress * deck.duration);
+            }}
+          />
+
+          <StemToggles
+            deckId="A"
+            stems={deck.stems}
+            onToggle={(stem: StemType) => toggleStem('A', stem)}
+          />
+        </section>
+
+        <section className="remix-grid">
+          <div className="remix-panel remix-plan-panel">
+            <div className="panel-header">
+              <div>
+                <div className="section-kicker">remix worksheet</div>
+                <div className="panel-title">Anchor + arrangement</div>
+              </div>
+              <span className="mono-readout">{plan?.source ?? 'waiting'}</span>
+            </div>
+            {plan ? (
+              <>
+                <p className="anchor-idea">{plan.anchorIdea}</p>
+                <div className="worksheet-columns">
+                  <div>
+                    <h3>Arrangement</h3>
+                    <ol>
+                      {plan.arrangement.map((step) => <li key={step}>{step}</li>)}
+                    </ol>
+                  </div>
+                  <div>
+                    <h3>Production notes</h3>
+                    <ul>
+                      {plan.productionNotes.map((note) => <li key={note}>{note}</li>)}
+                    </ul>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="empty-remix-state">
+                Prepare Dust or another Iceman track to generate a remix worksheet.
+              </div>
+            )}
+          </div>
+
+          <div className="remix-panel">
+            <div className="panel-header">
+              <div>
+                <div className="section-kicker">moments</div>
+                <div className="panel-title">Best source material</div>
+              </div>
+            </div>
+            <div className="moment-list">
+              {(plan?.moments ?? []).map((moment) => (
+                <button key={moment.id} onClick={() => seekDeck('A', moment.start)} className="moment-row">
+                  <span>{moment.label}</span>
+                  <small>{formatTime(moment.start)} - {formatTime(moment.end)}</small>
+                </button>
+              ))}
+              {!plan && <div className="empty-remix-state">No moments yet.</div>}
+            </div>
+          </div>
+        </section>
+
+        <section className="remix-panel">
+          <div className="panel-header">
+            <div>
+              <div className="section-kicker">pads</div>
+              <div className="panel-title">Playable remix material</div>
+            </div>
+          </div>
+          <div className="remix-pad-grid">
+            {(plan?.pads ?? []).map((pad, index) => (
+              <button
+                key={pad.id}
+                className={`remix-pad ${activePadId === pad.id ? 'remix-pad-active' : ''}`}
+                onClick={() => void handleTriggerPad(pad)}
+                disabled={status !== 'ready'}
+              >
+                <span className="pad-key">{index + 1}</span>
+                <strong>{pad.name}</strong>
+                <em>{formatTime(pad.start)} · {formatTime(pad.duration)} · {stemSummary(pad)}</em>
+                <small>{pad.description}</small>
+              </button>
+            ))}
+            {!plan && <div className="empty-remix-state">Pads appear after preparation.</div>}
+          </div>
+        </section>
       </main>
 
-      <KeyboardHints />
-      <CommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        onLoadTrack={handleLoadTrack}
-        defaultDeck={defaultDeck}
-      />
+      {paletteOpen && (
+        <div className="command-backdrop" onMouseDown={() => setPaletteOpen(false)}>
+          <div className="remix-command" onMouseDown={(event) => event.stopPropagation()}>
+            <input
+              ref={searchInputRef}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search Iceman tracks..."
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') setPaletteOpen(false);
+                if (event.key === 'Enter' && filteredTracks[0]) handleSelectTrack(filteredTracks[0]);
+              }}
+            />
+            <div className="command-results">
+              {filteredTracks.slice(0, 12).map((track) => (
+                <button key={track.filename} onClick={() => handleSelectTrack(track)}>
+                  <span>{track.name}</span>
+                  <small>{track.hasStems ? 'stems ready' : 'needs prep'}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
