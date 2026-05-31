@@ -11,6 +11,7 @@ export const STEMS_ROOT = path.join(LIBRARY_ROOT, 'stems');
 export const REMIX_CACHE_PATH = path.join(os.homedir(), '.mixmash', 'remix-analysis.json');
 const WORKER_PATH = path.join(process.cwd(), 'sidecar', 'workers', 'analyze_track_v2.py');
 const STEMS = ['vocals', 'drums', 'bass', 'other'];
+const CLAUDE_PLAN_TIMEOUT_MS = 30_000;
 
 function parseFilename(filename) {
   const base = filename.replace(/\.mp3$/i, '');
@@ -367,10 +368,12 @@ async function claudePlan(track, analysis, { claudeBin = 'claude', model = 'sonn
     'json',
     '--model',
     model,
+    '--max-turns',
+    '1',
     '--no-session-persistence',
     '--disable-slash-commands',
   ], prompt, {
-    timeoutMs: 90_000,
+    timeoutMs: CLAUDE_PLAN_TIMEOUT_MS,
     cwd: process.cwd(),
     env: {
       ...process.env,
