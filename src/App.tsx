@@ -8,19 +8,30 @@ import MashupHeader from './components/MashupHeader';
 import SceneStrip from './components/SceneStrip';
 import PerformanceKeyboard from './components/PerformanceKeyboard';
 import ProductionPad from './components/ProductionPad';
+import MashupInbox from './components/MashupInbox';
 import { useDeckStore } from './stores/deck-store';
 import { useKeyboard } from './hooks/useKeyboard';
 import { initAudio } from './audio/engine';
 import { syncDecks } from './audio/sync';
-import { analyzeTrackForMashup, buildMashupAnalysis } from './lib/analysis';
+import {
+  analyzeTrackForMashup,
+  buildMashupAnalysis,
+  mashupAnalysisFromPair,
+  trackAnalysisFromV2,
+} from './lib/analysis';
 import { generateMashupScenes } from './lib/scenes';
 import {
+  getLibraryAnalysisV2Status,
   getLibraryAnalysisStatus,
+  getMashupCandidates,
+  loadCandidateSession,
+  prepareMashupInbox,
   startLibraryBackgroundAnalysis,
+  startLibraryBackgroundAnalysisV2,
   suggestScenesWithSidecar,
   type SceneStatus,
 } from './lib/sidecar';
-import type { DeckId, MashupAnalysis, MashupScene, Track, TrackAnalysis } from './lib/types';
+import type { DeckId, MashupAnalysis, MashupCandidate, MashupScene, SceneAutomationEvent, Track, TrackAnalysis } from './lib/types';
 import { getTrackUrl, getStemUrls } from './lib/types';
 import { BPM_ESTIMATES } from './lib/recommendations';
 
@@ -30,12 +41,17 @@ function deckKey(id: DeckId): 'deckA' | 'deckB' {
 
 export default function App() {
   const audioInitRef = useRef(false);
+  const sceneTimersRef = useRef<number[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [analyses, setAnalyses] = useState<Partial<Record<DeckId, TrackAnalysis>>>({});
   const [mashup, setMashup] = useState<MashupAnalysis | null>(null);
   const [modelScenes, setModelScenes] = useState<MashupScene[]>([]);
   const [sceneStatus, setSceneStatus] = useState<SceneStatus>('fallback');
   const [libraryAnalysisLabel, setLibraryAnalysisLabel] = useState('sidecar warming');
+  const [inboxStatusLabel, setInboxStatusLabel] = useState('preparing analysis');
+  const [mashupCandidates, setMashupCandidates] = useState<MashupCandidate[]>([]);
+  const [activeCandidate, setActiveCandidate] = useState<MashupCandidate | null>(null);
+  const [loadingCandidateId, setLoadingCandidateId] = useState<string | null>(null);
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
 
   const deckA = useDeckStore((s) => s.deckA);
@@ -63,8 +79,9 @@ export default function App() {
     () => modelScenes.length > 0 ? modelScenes : generateMashupScenes(visibleMashup, deckA.track, deckB.track),
     [deckA.track, deckB.track, modelScenes, visibleMashup],
   );
-  const sceneStatusLabel =
-    sceneStatus === 'model'
+  const sceneStatusLabel = activeCandidate
+    ? `timed · ${activeCandidate.source.includes('claude') ? 'claude labeled' : 'local dsp'}`
+    : sceneStatus === 'model'
       ? 'claude sidecar'
       : sceneStatus === 'loading'
         ? 'asking claude'
@@ -81,14 +98,61 @@ export default function App() {
     }
   }, []);
 
+  const clearSceneTimers = useCallback(() => {
+    for (const timer of sceneTimersRef.current) {
+      window.clearTimeout(timer);
+    }
+    sceneTimersRef.current = [];
+  }, []);
+
+  const applySceneEvent = useCallback(
+    (event: SceneAutomationEvent) => {
+      if (event.action === 'setCrossfader' && typeof event.value === 'number') {
+        setCrossfader(event.value);
+        return;
+      }
+
+      if (event.action === 'setStem' && event.deck && event.stem && typeof event.active === 'boolean') {
+        const current = useDeckStore.getState()[deckKey(event.deck)].stems;
+        setStemState(event.deck, { ...current, [event.stem]: event.active });
+      }
+    },
+    [setCrossfader, setStemState],
+  );
+
+  const scheduleSceneEvents = useCallback(
+    (scene: MashupScene) => {
+      clearSceneTimers();
+      if (!scene.events?.length) return;
+      const bpm = scene.playbackRates ? (mashup?.targetBpm ?? readyMashup?.targetBpm ?? 128) : 128;
+      const barMs = (60_000 / Math.max(1, bpm)) * 4;
+
+      for (const event of scene.events) {
+        const delay = Math.max(0, (event.atBar - 1) * barMs);
+        const timer = window.setTimeout(() => applySceneEvent(event), delay);
+        sceneTimersRef.current.push(timer);
+      }
+    },
+    [applySceneEvent, clearSceneTimers, mashup?.targetBpm, readyMashup?.targetBpm],
+  );
+
   const handleApplyScene = useCallback(
     (scene: MashupScene) => {
+      if (scene.playbackRates) {
+        setPlaybackRate('A', scene.playbackRates.A, visibleMashup?.targetBpm);
+        setPlaybackRate('B', scene.playbackRates.B, visibleMashup?.targetBpm);
+      }
+      if (scene.startOffsets) {
+        seekDeck('A', scene.startOffsets.A);
+        seekDeck('B', scene.startOffsets.B);
+      }
       setStemState('A', scene.deckAStems);
       setStemState('B', scene.deckBStems);
       setCrossfader(scene.crossfader);
       setActiveSceneId(scene.id);
+      scheduleSceneEvents(scene);
     },
-    [setCrossfader, setStemState],
+    [scheduleSceneEvents, seekDeck, setCrossfader, setPlaybackRate, setStemState, visibleMashup?.targetBpm],
   );
 
   const requestModelScenes = useCallback(
@@ -159,6 +223,8 @@ export default function App() {
       setMashup(null);
       setModelScenes([]);
       setSceneStatus('fallback');
+      setActiveCandidate(null);
+      clearSceneTimers();
       setActiveSceneId(null);
       setAnalyses((current) => {
         const next = { ...current };
@@ -203,7 +269,119 @@ export default function App() {
       const analysis = await analyzeTrackForMashup(trackWithBpm, deckState);
       setAnalyses((current) => ({ ...current, [targetDeck]: analysis }));
     },
-    [ensureAudio, getEngine, setDeckTrack],
+    [clearSceneTimers, ensureAudio, getEngine, setDeckTrack],
+  );
+
+  const loadCandidateDeck = useCallback(
+    async (
+      track: Track,
+      targetDeck: DeckId,
+      analysis: MashupCandidate['analysisA'],
+      startOffset: number,
+      playbackRate: number,
+      targetBpm: number,
+    ) => {
+      const trackWithBpm = {
+        ...track,
+        bpm: analysis.bpm.resolved,
+        duration: analysis.duration,
+      };
+      setDeckTrack(targetDeck, trackWithBpm);
+
+      const engine = getEngine(targetDeck);
+      const stemUrls = getStemUrls(track.filename);
+
+      try {
+        await engine.loadStems(stemUrls);
+      } catch {
+        const fullUrl = getTrackUrl(track.filename);
+        await engine.loadStems({
+          vocals: fullUrl,
+          drums: fullUrl,
+          bass: fullUrl,
+          other: fullUrl,
+        });
+      }
+
+      const duration = engine.getDuration() || analysis.duration;
+      const peaks = engine.getPeaks('drums', 500);
+      const key = deckKey(targetDeck);
+      useDeckStore.setState((state) => ({
+        [key]: {
+          ...state[key],
+          duration,
+          bpm: analysis.bpm.resolved,
+          peaks,
+          playbackRate: 1,
+        },
+      }));
+
+      setPlaybackRate(targetDeck, playbackRate, targetBpm);
+      seekDeck(targetDeck, startOffset);
+    },
+    [getEngine, seekDeck, setDeckTrack, setPlaybackRate],
+  );
+
+  const handleLoadCandidate = useCallback(
+    async (candidate: MashupCandidate) => {
+      clearSceneTimers();
+      setLoadingCandidateId(candidate.id);
+      try {
+        await ensureAudio();
+        const session = await loadCandidateSession(candidate.id).catch(() => candidate);
+
+        setActiveCandidate(session);
+        setMashup(mashupAnalysisFromPair(session.pair, session.warnings));
+        setAnalyses({
+          A: trackAnalysisFromV2(session.analysisA),
+          B: trackAnalysisFromV2(session.analysisB),
+        });
+        setModelScenes(session.scenes);
+        setSceneStatus(session.source.includes('claude') ? 'model' : 'fallback');
+
+        await Promise.all([
+          loadCandidateDeck(
+            session.trackA,
+            'A',
+            session.analysisA,
+            session.pair.deckAStart,
+            session.pair.deckARate,
+            session.pair.targetBpm,
+          ),
+          loadCandidateDeck(
+            session.trackB,
+            'B',
+            session.analysisB,
+            session.pair.deckBStart,
+            session.pair.deckBRate,
+            session.pair.targetBpm,
+          ),
+        ]);
+
+        const firstScene = session.scenes[0];
+        if (firstScene) {
+          setStemState('A', firstScene.deckAStems);
+          setStemState('B', firstScene.deckBStems);
+          setCrossfader(firstScene.crossfader);
+          setActiveSceneId(firstScene.id);
+        }
+
+        setDeckPlaying('A', true);
+        setDeckPlaying('B', true);
+      } catch (error) {
+        console.warn('[mixmash] failed to load candidate session', error);
+      } finally {
+        setLoadingCandidateId(null);
+      }
+    },
+    [
+      clearSceneTimers,
+      ensureAudio,
+      loadCandidateDeck,
+      setCrossfader,
+      setDeckPlaying,
+      setStemState,
+    ],
   );
 
   useEffect(() => {
@@ -219,33 +397,73 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  const refreshMashupInbox = useCallback(async () => {
+    setInboxStatusLabel('preparing inbox');
+    try {
+      const response = await prepareMashupInbox(TRACKS_WITH_BPM);
+      setMashupCandidates(response.candidates);
+      setInboxStatusLabel(
+        response.candidates.length
+          ? `${response.candidates.length} candidates · ${response.source ?? 'local'}`
+          : response.status === 'analysis-running'
+            ? 'analysis running'
+            : 'no strong candidates yet',
+      );
+    } catch (error) {
+      console.warn('[mixmash] mashup inbox unavailable', error);
+      setInboxStatusLabel('inbox offline');
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     let interval: ReturnType<typeof window.setInterval> | null = null;
 
     async function startBackgroundAnalysis() {
       try {
-        await startLibraryBackgroundAnalysis(TRACKS_WITH_BPM);
+        void startLibraryBackgroundAnalysis(TRACKS_WITH_BPM).catch(() => undefined);
+        await startLibraryBackgroundAnalysisV2(TRACKS_WITH_BPM);
         if (cancelled) return;
-        setLibraryAnalysisLabel('analyzing library');
+        setLibraryAnalysisLabel('analysis v2 warming');
+        await refreshMashupInbox();
 
         interval = window.setInterval(async () => {
           try {
-            const status = await getLibraryAnalysisStatus();
+            const [status, candidates] = await Promise.all([
+              getLibraryAnalysisV2Status(),
+              getMashupCandidates(),
+            ]);
             if (cancelled) return;
+
             if (status.running) {
-              setLibraryAnalysisLabel(`analyzing ${status.completed}/${status.total}`);
+              setLibraryAnalysisLabel(`v2 ${status.completed}/${status.total}`);
+              setInboxStatusLabel(`analyzing ${status.completed}/${status.total}`);
             } else {
-              setLibraryAnalysisLabel(`cache ${status.cacheCount} tracks`);
-              if (interval) window.clearInterval(interval);
+              setLibraryAnalysisLabel(`v2 cache ${status.cacheCount}`);
+              if (candidates.candidates.length) {
+                setMashupCandidates(candidates.candidates);
+                setInboxStatusLabel(`${candidates.candidates.length} candidates · ${candidates.source ?? 'local'}`);
+              } else {
+                await refreshMashupInbox();
+              }
             }
           } catch {
-            if (!cancelled) setLibraryAnalysisLabel('sidecar offline');
-            if (interval) window.clearInterval(interval);
+            if (!cancelled) {
+              setLibraryAnalysisLabel('sidecar offline');
+              setInboxStatusLabel('inbox offline');
+            }
           }
-        }, 2500);
+        }, 3000);
       } catch {
-        if (!cancelled) setLibraryAnalysisLabel('sidecar offline');
+        if (!cancelled) {
+          try {
+            const legacy = await getLibraryAnalysisStatus();
+            setLibraryAnalysisLabel(`legacy cache ${legacy.cacheCount}`);
+          } catch {
+            setLibraryAnalysisLabel('sidecar offline');
+          }
+          setInboxStatusLabel('analysis v2 offline');
+        }
       }
     }
 
@@ -254,8 +472,9 @@ export default function App() {
     return () => {
       cancelled = true;
       if (interval) window.clearInterval(interval);
+      clearSceneTimers();
     };
-  }, []);
+  }, [clearSceneTimers, refreshMashupInbox]);
 
   const handlePlayPause = useCallback(
     async (id: DeckId) => {
@@ -316,59 +535,89 @@ export default function App() {
         />
 
         <div className="workspace-body custom-scrollbar">
-          <section className="deck-rig">
-            <DeckView
-              deckId="A"
-              state={deckA}
-              onPlayPause={() => handlePlayPause('A')}
-              onStemToggle={(stem) => toggleStem('A', stem)}
-              onVolumeChange={(v) => setVolume('A', v)}
-              onEQChange={(band, val) => setEQ('A', band, val)}
-              onSeek={(p) => seekDeck('A', p * deckA.duration)}
-              onNudge={(dir) => handleNudge('A', dir)}
-              onNudgeEnd={() => handleNudgeEnd('A')}
+          {!activeCandidate ? (
+            <MashupInbox
+              candidates={mashupCandidates}
+              statusLabel={inboxStatusLabel}
+              loadingCandidateId={loadingCandidateId}
+              onRefresh={refreshMashupInbox}
+              onLoadCandidate={handleLoadCandidate}
             />
+          ) : (
+            <>
+              <div className="active-candidate-strip">
+                <span>
+                  <strong>{activeCandidate.title}</strong>
+                  {activeCandidate.subtitle}
+                </span>
+                <button
+                  className="ghost-button"
+                  onClick={() => {
+                    clearSceneTimers();
+                    setActiveCandidate(null);
+                    setDeckPlaying('A', false);
+                    setDeckPlaying('B', false);
+                  }}
+                >
+                  inbox
+                </button>
+              </div>
 
-            <Mixer
-              crossfader={crossfader}
-              masterVolume={masterVolume}
-              bpmA={deckA.bpm}
-              bpmB={deckB.bpm}
-              onCrossfaderChange={setCrossfader}
-              onMasterVolumeChange={(v) => {
-                useDeckStore.setState({ masterVolume: v });
-              }}
-              onSync={handleSync}
-            />
+              <section className="deck-rig">
+                <DeckView
+                  deckId="A"
+                  state={deckA}
+                  onPlayPause={() => handlePlayPause('A')}
+                  onStemToggle={(stem) => toggleStem('A', stem)}
+                  onVolumeChange={(v) => setVolume('A', v)}
+                  onEQChange={(band, val) => setEQ('A', band, val)}
+                  onSeek={(p) => seekDeck('A', p * deckA.duration)}
+                  onNudge={(dir) => handleNudge('A', dir)}
+                  onNudgeEnd={() => handleNudgeEnd('A')}
+                />
 
-            <DeckView
-              deckId="B"
-              state={deckB}
-              onPlayPause={() => handlePlayPause('B')}
-              onStemToggle={(stem) => toggleStem('B', stem)}
-              onVolumeChange={(v) => setVolume('B', v)}
-              onEQChange={(band, val) => setEQ('B', band, val)}
-              onSeek={(p) => seekDeck('B', p * deckB.duration)}
-              onNudge={(dir) => handleNudge('B', dir)}
-              onNudgeEnd={() => handleNudgeEnd('B')}
-            />
-          </section>
+                <Mixer
+                  crossfader={crossfader}
+                  masterVolume={masterVolume}
+                  bpmA={deckA.bpm}
+                  bpmB={deckB.bpm}
+                  onCrossfaderChange={setCrossfader}
+                  onMasterVolumeChange={(v) => {
+                    useDeckStore.setState({ masterVolume: v });
+                  }}
+                  onSync={handleSync}
+                />
 
-          <SceneStrip
-            scenes={scenes}
-            activeSceneId={activeSceneId}
-            statusLabel={sceneStatusLabel}
-            onApplyScene={handleApplyScene}
-          />
+                <DeckView
+                  deckId="B"
+                  state={deckB}
+                  onPlayPause={() => handlePlayPause('B')}
+                  onStemToggle={(stem) => toggleStem('B', stem)}
+                  onVolumeChange={(v) => setVolume('B', v)}
+                  onEQChange={(band, val) => setEQ('B', band, val)}
+                  onSeek={(p) => seekDeck('B', p * deckB.duration)}
+                  onNudge={(dir) => handleNudge('B', dir)}
+                  onNudgeEnd={() => handleNudgeEnd('B')}
+                />
+              </section>
 
-          <div className="bottom-instrument-grid">
-            <PerformanceKeyboard
-              scenes={scenes}
-              activeSceneId={activeSceneId}
-              onApplyScene={handleApplyScene}
-            />
-            <ProductionPad bpm={effectiveProductionBpm} />
-          </div>
+              <SceneStrip
+                scenes={scenes}
+                activeSceneId={activeSceneId}
+                statusLabel={sceneStatusLabel}
+                onApplyScene={handleApplyScene}
+              />
+
+              <div className="bottom-instrument-grid">
+                <PerformanceKeyboard
+                  scenes={scenes}
+                  activeSceneId={activeSceneId}
+                  onApplyScene={handleApplyScene}
+                />
+                <ProductionPad bpm={effectiveProductionBpm} />
+              </div>
+            </>
+          )}
         </div>
       </main>
 

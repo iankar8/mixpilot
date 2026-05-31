@@ -4,6 +4,21 @@ import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import {
+  ANALYSIS_V2_PATH,
+  analysisV2Job,
+  dependencyStatus,
+  readAnalysisV2Cache,
+  runAnalysisV2,
+} from './lib/analysis-v2.mjs';
+import {
+  CANDIDATE_PATH,
+  candidateJob,
+  prepareCandidates,
+  readCandidateCache,
+  saveCandidateCache,
+} from './lib/pairing-v2.mjs';
+import { enhanceCandidatesWithClaude } from './lib/model-v2.mjs';
 
 const execFileAsync = promisify(execFile);
 const PORT = Number(process.env.MIXMASH_SIDECAR_PORT || 8787);
@@ -13,6 +28,7 @@ const REQUEST_LIMIT_BYTES = 512_000;
 const CACHE_DIR = path.join(os.homedir(), '.mixmash');
 const CACHE_PATH = path.join(CACHE_DIR, 'track-analysis-cache.json');
 const LIBRARY_ROOT = path.join(os.homedir(), 'Music', 'dj-library');
+let lastKnownTracks = [];
 
 const analysisJob = {
   running: false,
@@ -344,6 +360,37 @@ async function claudeStatus() {
   }
 }
 
+async function prepareAndMaybeEnrichCandidates(tracks, analysisCache) {
+  const prepared = await prepareCandidates(tracks, analysisCache, { minScore: 0.54, limit: 12 });
+
+  if (process.env.MIXMASH_DISABLE_CLAUDE_INBOX === '1') {
+    return prepared;
+  }
+
+  void enhanceCandidatesWithClaude(prepared.candidates, {
+    claudeBin: CLAUDE_BIN,
+    model: CLAUDE_MODEL,
+  })
+    .then((enriched) => saveCandidateCache(enriched, 'claude-enriched-v2'))
+    .catch((error) => {
+      console.warn('[mixmash-sidecar] Claude candidate enrichment skipped:', error.message);
+    });
+
+  return prepared;
+}
+
+async function startAnalysisV2IfNeeded(tracks, force = false) {
+  lastKnownTracks = tracks;
+  if (analysisV2Job.running) return;
+
+  void runAnalysisV2(tracks, {
+    force,
+    onComplete: async (cache) => {
+      await prepareAndMaybeEnrichCandidates(tracks, cache);
+    },
+  });
+}
+
 const server = createServer(async (req, res) => {
   if (!req.url) {
     sendJson(req, res, 400, { ok: false, error: 'Missing URL' });
@@ -362,16 +409,122 @@ const server = createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && url.pathname === '/health') {
       const cache = await loadAnalysisCache();
+      const analysisV2Cache = await readAnalysisV2Cache();
+      const candidateCache = await readCandidateCache();
       sendJson(req, res, 200, {
         ok: true,
         service: 'mixmash-sidecar',
         modelProvider: 'claude-cli',
         cachePath: CACHE_PATH,
+        analysisV2: {
+          cachePath: ANALYSIS_V2_PATH,
+          cacheCount: Object.keys(analysisV2Cache.tracks).length,
+          job: analysisV2Job,
+          dependencies: await dependencyStatus(),
+        },
+        mashupInbox: {
+          cachePath: CANDIDATE_PATH,
+          candidateCount: candidateCache.candidates.length,
+          job: candidateJob,
+          source: candidateCache.source || 'none',
+        },
         analysis: {
           ...analysisJob,
           cacheCount: Object.keys(cache.tracks).length,
         },
         claude: await claudeStatus(),
+      });
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/analysis-v2-status') {
+      const cache = await readAnalysisV2Cache();
+      sendJson(req, res, 200, {
+        ok: true,
+        ...analysisV2Job,
+        cacheCount: Object.keys(cache.tracks).length,
+        cachePath: ANALYSIS_V2_PATH,
+        dependencies: analysisV2Job.dependencyStatus || await dependencyStatus(),
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/analyze-library-v2') {
+      const payload = await readJson(req);
+      const tracks = Array.isArray(payload.tracks) ? payload.tracks : [];
+      if (!tracks.length) {
+        sendJson(req, res, 400, { ok: false, error: 'Expected tracks array' });
+        return;
+      }
+      await startAnalysisV2IfNeeded(tracks, Boolean(payload.force));
+      const cache = await readAnalysisV2Cache();
+      sendJson(req, res, 202, {
+        ok: true,
+        accepted: true,
+        ...analysisV2Job,
+        cacheCount: Object.keys(cache.tracks).length,
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/prepare-mashup-inbox') {
+      const payload = await readJson(req);
+      const tracks = Array.isArray(payload.tracks) ? payload.tracks : lastKnownTracks;
+      if (!tracks.length) {
+        sendJson(req, res, 400, { ok: false, error: 'Expected tracks array' });
+        return;
+      }
+      lastKnownTracks = tracks;
+      const analysisCache = await readAnalysisV2Cache();
+      const analyzedCount = Object.keys(analysisCache.tracks).length;
+
+      if (analyzedCount < Math.min(8, tracks.length)) {
+        await startAnalysisV2IfNeeded(tracks, false);
+        const candidateCache = await readCandidateCache();
+        sendJson(req, res, 202, {
+          ok: true,
+          accepted: true,
+          status: 'analysis-running',
+          analyzedCount,
+          candidates: candidateCache.candidates,
+          candidateJob,
+          analysisJob: analysisV2Job,
+        });
+        return;
+      }
+
+      const candidateCache = await prepareAndMaybeEnrichCandidates(tracks, analysisCache);
+      sendJson(req, res, 200, {
+        ok: true,
+        status: 'ready',
+        candidates: candidateCache.candidates,
+        candidateJob,
+        analysisJob: analysisV2Job,
+      });
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/mashup-candidates') {
+      const candidateCache = await readCandidateCache();
+      sendJson(req, res, 200, {
+        ok: true,
+        ...candidateCache,
+        job: candidateJob,
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/load-candidate-session') {
+      const payload = await readJson(req);
+      const candidateCache = await readCandidateCache();
+      const candidate = candidateCache.candidates.find((item) => item.id === payload.id);
+      if (!candidate) {
+        sendJson(req, res, 404, { ok: false, error: 'Candidate not found' });
+        return;
+      }
+      sendJson(req, res, 200, {
+        ok: true,
+        candidate,
       });
       return;
     }

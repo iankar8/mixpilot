@@ -1,4 +1,4 @@
-import type { DeckState, MashupAnalysis, Track, TrackAnalysis } from './types';
+import type { DeckState, MashupAnalysis, PairAnalysis, Track, TrackAnalysis, TrackAnalysisV2 } from './types';
 import { STEM_TYPES } from './types';
 
 const CACHE_PREFIX = 'mixmash.track-analysis.v1';
@@ -110,6 +110,36 @@ export function buildMashupAnalysis(
     phaseOffsetSeconds: Number((deckBSeek - deckB.currentTime).toFixed(3)),
     phraseOffsetBeats: Math.round((deckBSeek - deckB.currentTime) / beatPeriodBOriginal),
     confidence,
+    warnings,
+  };
+}
+
+export function trackAnalysisFromV2(analysis: TrackAnalysisV2): TrackAnalysis {
+  return {
+    trackId: analysis.trackId,
+    bpm: analysis.bpm.resolved,
+    duration: analysis.duration,
+    beatPeriod: analysis.beatPeriod,
+    downbeats: analysis.downbeats,
+    phrases: analysis.phrases,
+    stemAvailability: analysis.stemAvailability,
+    confidence: analysis.confidence,
+    source: 'python-numpy-v2',
+    analyzedAt: analysis.analyzedAt,
+  };
+}
+
+export function mashupAnalysisFromPair(pair: PairAnalysis, warnings: string[] = []): MashupAnalysis {
+  return {
+    id: pair.id,
+    status: warnings.length ? 'warning' : 'synced',
+    targetBpm: pair.targetBpm,
+    deckARate: pair.deckARate,
+    deckBRate: pair.deckBRate,
+    deckBSeek: pair.deckBStart,
+    phaseOffsetSeconds: Number((pair.deckBStart - pair.deckAStart).toFixed(3)),
+    phraseOffsetBeats: 0,
+    confidence: pair.confidence,
     warnings,
   };
 }
