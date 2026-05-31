@@ -19,6 +19,7 @@ function defaultDeckState(): DeckState {
     eq: { low: 0, mid: 0, high: 0 },
     filterFreq: 20000,
     bpm: 0,
+    playbackRate: 1,
     currentTime: 0,
     duration: 0,
     peaks: [],
@@ -47,11 +48,13 @@ interface DeckStoreState {
   setDeckTrack: (deckId: DeckId, track: Track) => void;
   setDeckPlaying: (deckId: DeckId, playing: boolean) => void;
   toggleStem: (deckId: DeckId, stem: StemType) => void;
+  setStemState: (deckId: DeckId, stems: DeckState['stems']) => void;
   setVolume: (deckId: DeckId, volume: number) => void;
   setEQ: (deckId: DeckId, band: 'low' | 'mid' | 'high', value: number) => void;
   setFilter: (deckId: DeckId, freq: number) => void;
   setCrossfader: (value: number) => void;
   setBPM: (deckId: DeckId, bpm: number) => void;
+  setPlaybackRate: (deckId: DeckId, rate: number, effectiveBpm?: number) => void;
   setCurrentTime: (deckId: DeckId, time: number) => void;
   setPeaks: (deckId: DeckId, peaks: number[]) => void;
   seekDeck: (deckId: DeckId, time: number) => void;
@@ -101,8 +104,25 @@ export const useDeckStore = create<DeckStoreState>()((set, get) => ({
         bpm: track.bpm ?? 0,
         duration: track.duration ?? 0,
         currentTime: 0,
+        playbackRate: 1,
         isPlaying: false,
         stems: { vocals: true, drums: true, bass: true, other: true },
+      },
+    }));
+  },
+
+  setStemState: (deckId, stems) => {
+    const key = deckKey(deckId);
+    const engine = getEngine(deckId);
+
+    for (const stem of Object.keys(stems) as StemType[]) {
+      engine.setStemMute(stem, !stems[stem]);
+    }
+
+    set((s) => ({
+      [key]: {
+        ...s[key],
+        stems: { ...stems },
       },
     }));
   },
@@ -211,6 +231,19 @@ export const useDeckStore = create<DeckStoreState>()((set, get) => ({
     const key = deckKey(deckId);
     set((s) => ({
       [key]: { ...s[key], bpm },
+    }));
+  },
+
+  setPlaybackRate: (deckId, rate, effectiveBpm) => {
+    const key = deckKey(deckId);
+    const engine = getEngine(deckId);
+    engine.setPlaybackRate(rate);
+    set((s) => ({
+      [key]: {
+        ...s[key],
+        playbackRate: rate,
+        bpm: effectiveBpm ?? s[key].bpm,
+      },
     }));
   },
 

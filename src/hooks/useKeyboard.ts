@@ -1,8 +1,28 @@
 import { useEffect } from 'react';
 import { useDeckStore } from '../stores/deck-store';
+import { initAudio } from '../audio/engine';
+import type { MashupScene } from '../lib/types';
 
-/** Keyboard shortcut handler for the DJ app. */
-export function useKeyboard() {
+function unlockAudio() {
+  void initAudio().catch((err) => {
+    console.warn('[mixmash] Audio unlock deferred until the next gesture', err);
+  });
+}
+
+interface KeyboardHandlers {
+  onOpenSearch?: () => void;
+  onSync?: () => void;
+  scenes?: MashupScene[];
+  onApplyScene?: (scene: MashupScene) => void;
+}
+
+/** Keyboard shortcut handler for the mashup instrument. */
+export function useKeyboard({
+  onOpenSearch,
+  onSync,
+  scenes = [],
+  onApplyScene,
+}: KeyboardHandlers = {}) {
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       // Don't fire shortcuts when typing in text inputs, but allow for range sliders
@@ -18,15 +38,40 @@ export function useKeyboard() {
       const store = useDeckStore.getState();
       const key = e.key;
 
+      if ((e.metaKey || e.ctrlKey) && key.toLowerCase() === 'k') {
+        e.preventDefault();
+        onOpenSearch?.();
+        return;
+      }
+
+      if (key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        onOpenSearch?.();
+        return;
+      }
+
+      if (/^[1-4]$/.test(key)) {
+        const scene = scenes[Number(key) - 1];
+        if (scene && onApplyScene) {
+          e.preventDefault();
+          onApplyScene(scene);
+          return;
+        }
+      }
+
       switch (key) {
         case ' ': {
           e.preventDefault();
+          if (!store.deckA.isPlaying && (!store.deckA.track || store.deckA.duration <= 0)) return;
+          unlockAudio();
           const isPlaying = store.deckA.isPlaying;
           store.setDeckPlaying('A', !isPlaying);
           break;
         }
         case 'Enter': {
           e.preventDefault();
+          if (!store.deckB.isPlaying && (!store.deckB.track || store.deckB.duration <= 0)) return;
+          unlockAudio();
           const isPlaying = store.deckB.isPlaying;
           store.setDeckPlaying('B', !isPlaying);
           break;
@@ -89,16 +134,7 @@ export function useKeyboard() {
         // Sync BPM
         case 'Tab': {
           e.preventDefault();
-          // Sync deck B to deck A's BPM
-          const bpmA = store.deckA.bpm;
-          const bpmB = store.deckB.bpm;
-          if (bpmA > 0 && bpmB > 0) {
-            const engineA = store.getEngine('A');
-            const engineB = store.getEngine('B');
-            const targetBPM = bpmA;
-            engineA.setPlaybackRate(targetBPM / bpmA);
-            engineB.setPlaybackRate(targetBPM / bpmB);
-          }
+          onSync?.();
           break;
         }
 
@@ -116,5 +152,5 @@ export function useKeyboard() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [onApplyScene, onOpenSearch, onSync, scenes]);
 }

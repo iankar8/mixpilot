@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// mixpilot – AI Assistant Panel (top bar)
+// mixmash – AI Assistant Panel (legacy top bar)
 // ---------------------------------------------------------------------------
 
 import { useCoachStore } from '../stores/coach-store';
@@ -39,7 +39,7 @@ export default function AIPanel() {
           flexShrink: 0,
         }}
       >
-        mixpilot
+        mixmash
       </span>
 
       {/* Divider */}
@@ -63,7 +63,7 @@ export default function AIPanel() {
               fontStyle: 'italic',
             }}
           >
-            Load tracks from the library and start mixing — your AI coach is watching
+            Load two songs and start shaping a mashup
           </span>
         ) : (
           suggestions.map((suggestion) => (

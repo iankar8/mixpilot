@@ -22,7 +22,7 @@ export async function initAudio(): Promise<void> {
   await Tone.start();
   _ready = true;
 
-  console.log('[mixpilot] audio context started –', Tone.getContext().state);
+  console.log('[mixmash] audio context started –', Tone.getContext().state);
 }
 
 /** Whether the audio context has been unlocked by a user gesture. */

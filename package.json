@@ -1,10 +1,11 @@
 {
-  "name": "mixpilot",
+  "name": "mixmash",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "sidecar": "node sidecar/server.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

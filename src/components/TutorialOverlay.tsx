@@ -136,27 +136,17 @@ function TutorialCard({
   const completeTutorial = useTutorialStore((s) => s.completeTutorial);
   const dismissTutorial = useTutorialStore((s) => s.dismissTutorial);
 
-  const isLast = stepIndex === totalSteps - 1;
-
-  // Keyboard: Space or Enter to advance
+  // Keyboard: keep Escape available without intercepting DJ shortcuts.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.code === 'Space' || e.code === 'Enter') {
-        e.preventDefault();
-        e.stopPropagation();
-        if (isLast) {
-          completeTutorial();
-        } else {
-          nextStep();
-        }
-      } else if (e.code === 'Escape') {
+      if (e.code === 'Escape') {
         e.preventDefault();
         dismissTutorial();
       }
     };
     window.addEventListener('keydown', handler, true);
     return () => window.removeEventListener('keydown', handler, true);
-  }, [isLast, nextStep, completeTutorial, dismissTutorial]);
+  }, [dismissTutorial]);
 
   if (!step) return null;
 

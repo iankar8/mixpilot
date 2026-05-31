@@ -47,10 +47,52 @@ export interface DeckState {
   /** Filter cutoff in Hz (20–20 000). */
   filterFreq: number;
   bpm: number;
+  /** Current playback-rate multiplier applied to loaded audio. */
+  playbackRate: number;
   currentTime: number;
   duration: number;
   /** Normalized waveform peak amplitudes (0–1), extracted from loaded stems. */
   peaks: number[];
+}
+
+/** Cached browser-side analysis for one loaded track. */
+export interface TrackAnalysis {
+  trackId: string;
+  bpm: number;
+  duration: number;
+  beatPeriod: number;
+  downbeats: number[];
+  phrases: number[];
+  stemAvailability: Record<StemType, boolean>;
+  confidence: number;
+  source: 'estimate' | 'cached-browser';
+  analyzedAt: number;
+}
+
+/** Pair-level analysis used to lock two tracks into a mashup. */
+export interface MashupAnalysis {
+  id: string;
+  status: 'idle' | 'analyzing' | 'ready' | 'synced' | 'warning';
+  targetBpm: number;
+  deckARate: number;
+  deckBRate: number;
+  deckBSeek: number;
+  phaseOffsetSeconds: number;
+  phraseOffsetBeats: number;
+  confidence: number;
+  warnings: string[];
+}
+
+/** A human-triggerable mashup scene generated from the current pair. */
+export interface MashupScene {
+  id: string;
+  name: string;
+  description: string;
+  keyHint: string;
+  deckAStems: StemState;
+  deckBStems: StemState;
+  crossfader: number;
+  transition: 'cut' | 'fade';
 }
 
 /** AI coach suggestion surfaced in the UI. */

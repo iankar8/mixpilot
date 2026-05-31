@@ -112,6 +112,7 @@ function TrackRow({
   isHovered,
   onHover,
   onLoad,
+  defaultDeck,
   accent = false,
   reason,
   isLoadedOnA,
@@ -121,6 +122,7 @@ function TrackRow({
   isHovered: boolean;
   onHover: (id: string | null) => void;
   onLoad: (track: Track, deck: DeckId) => void;
+  defaultDeck: DeckId;
   accent?: boolean;
   reason?: string;
   isLoadedOnA: boolean;
@@ -132,6 +134,8 @@ function TrackRow({
     <div
       onMouseEnter={() => onHover(track.id)}
       onMouseLeave={() => onHover(null)}
+      onClick={() => onLoad(track, defaultDeck)}
+      title={`Load to Deck ${defaultDeck}`}
       style={{
         display: 'flex',
         alignItems: 'center',
@@ -143,6 +147,7 @@ function TrackRow({
         transition: 'background 150ms cubic-bezier(0.22, 1, 0.36, 1)',
         gap: '6px',
         minHeight: '38px',
+        cursor: 'pointer',
       }}
     >
       {/* Track info */}
@@ -183,7 +188,10 @@ function TrackRow({
       {/* A/B load buttons — visible on hover or when loaded */}
       <div style={{ display: 'flex', gap: '3px', flexShrink: 0 }}>
         <button
-          onClick={() => onLoad(track, 'A')}
+          onClick={(event) => {
+            event.stopPropagation();
+            onLoad(track, 'A');
+          }}
           title="Load to Deck A"
           style={{
             width: '22px',
@@ -207,7 +215,10 @@ function TrackRow({
           A
         </button>
         <button
-          onClick={() => onLoad(track, 'B')}
+          onClick={(event) => {
+            event.stopPropagation();
+            onLoad(track, 'B');
+          }}
           title="Load to Deck B"
           style={{
             width: '22px',
@@ -246,14 +257,18 @@ export { TRACKS, TRACKS_WITH_BPM };
 export default function Library({ onLoadTrack, currentTrackA, currentTrackB }: LibraryProps) {
   const [search, setSearch] = useState('');
   const [hoveredTrackId, setHoveredTrackId] = useState<string | null>(null);
+  const defaultDeck: DeckId = currentTrackA && !currentTrackB ? 'B' : 'A';
 
   // Get AI recommendations based on what's currently loaded
   const activeTrack = currentTrackA || currentTrackB;
-  const loadedIds = [currentTrackA?.id, currentTrackB?.id].filter(Boolean) as string[];
+  const loadedIds = useMemo(
+    () => [currentTrackA?.id, currentTrackB?.id].filter(Boolean) as string[],
+    [currentTrackA?.id, currentTrackB?.id],
+  );
   const recommendations = useMemo(() => {
     if (!activeTrack) return [];
     return getRecommendations(activeTrack, TRACKS_WITH_BPM, loadedIds, 5);
-  }, [activeTrack?.id, loadedIds.join(',')]);
+  }, [activeTrack, loadedIds]);
 
   const filtered = TRACKS_WITH_BPM.filter((track) => {
     const q = search.toLowerCase();
@@ -349,6 +364,7 @@ export default function Library({ onLoadTrack, currentTrackA, currentTrackB }: L
               isHovered={hoveredTrackId === rec.track.id}
               onHover={setHoveredTrackId}
               onLoad={onLoadTrack}
+              defaultDeck={defaultDeck}
               accent
               reason={rec.reason}
               isLoadedOnA={currentTrackA?.id === rec.track.id}
@@ -374,6 +390,7 @@ export default function Library({ onLoadTrack, currentTrackA, currentTrackB }: L
             isHovered={hoveredTrackId === track.id}
             onHover={setHoveredTrackId}
             onLoad={onLoadTrack}
+            defaultDeck={defaultDeck}
             isLoadedOnA={currentTrackA?.id === track.id}
             isLoadedOnB={currentTrackB?.id === track.id}
           />

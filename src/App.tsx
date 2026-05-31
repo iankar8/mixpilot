@@ -1,26 +1,43 @@
-import { useCallback, useEffect, useRef } from 'react';
-import Library from './components/Library';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Library, { TRACKS_WITH_BPM } from './components/Library';
 import DeckView from './components/DeckView';
 import Mixer from './components/Mixer';
-import AIPanel from './components/AIPanel';
 import KeyboardHints from './components/KeyboardHints';
-import TutorialOverlay from './components/TutorialOverlay';
+import CommandPalette from './components/CommandPalette';
+import MashupHeader from './components/MashupHeader';
+import SceneStrip from './components/SceneStrip';
+import PerformanceKeyboard from './components/PerformanceKeyboard';
+import ProductionPad from './components/ProductionPad';
 import { useDeckStore } from './stores/deck-store';
 import { useKeyboard } from './hooks/useKeyboard';
-import { useCoach } from './hooks/useCoach';
-import { useTutorialAdvance } from './tutorial/tutorial-hooks';
-import { useTutorialStore } from './tutorial/tutorial-store';
-import { useCoachStore } from './stores/coach-store';
 import { initAudio } from './audio/engine';
 import { syncDecks } from './audio/sync';
-import type { Track, DeckId } from './lib/types';
+import { analyzeTrackForMashup, buildMashupAnalysis } from './lib/analysis';
+import { generateMashupScenes } from './lib/scenes';
+import {
+  getLibraryAnalysisStatus,
+  startLibraryBackgroundAnalysis,
+  suggestScenesWithSidecar,
+  type SceneStatus,
+} from './lib/sidecar';
+import type { DeckId, MashupAnalysis, MashupScene, Track, TrackAnalysis } from './lib/types';
 import { getTrackUrl, getStemUrls } from './lib/types';
 import { BPM_ESTIMATES } from './lib/recommendations';
 
+function deckKey(id: DeckId): 'deckA' | 'deckB' {
+  return id === 'A' ? 'deckA' : 'deckB';
+}
+
 export default function App() {
   const audioInitRef = useRef(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [analyses, setAnalyses] = useState<Partial<Record<DeckId, TrackAnalysis>>>({});
+  const [mashup, setMashup] = useState<MashupAnalysis | null>(null);
+  const [modelScenes, setModelScenes] = useState<MashupScene[]>([]);
+  const [sceneStatus, setSceneStatus] = useState<SceneStatus>('fallback');
+  const [libraryAnalysisLabel, setLibraryAnalysisLabel] = useState('sidecar warming');
+  const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
 
-  // Zustand store
   const deckA = useDeckStore((s) => s.deckA);
   const deckB = useDeckStore((s) => s.deckB);
   const crossfader = useDeckStore((s) => s.crossfader);
@@ -28,80 +45,35 @@ export default function App() {
   const setDeckTrack = useDeckStore((s) => s.setDeckTrack);
   const setDeckPlaying = useDeckStore((s) => s.setDeckPlaying);
   const toggleStem = useDeckStore((s) => s.toggleStem);
+  const setStemState = useDeckStore((s) => s.setStemState);
   const setVolume = useDeckStore((s) => s.setVolume);
   const setEQ = useDeckStore((s) => s.setEQ);
   const setCrossfader = useDeckStore((s) => s.setCrossfader);
+  const setPlaybackRate = useDeckStore((s) => s.setPlaybackRate);
   const getEngine = useDeckStore((s) => s.getEngine);
   const seekDeck = useDeckStore((s) => s.seekDeck);
-  const setBPM = useDeckStore((s) => s.setBPM);
 
-  // Initialize keyboard shortcuts
-  useKeyboard();
+  const defaultDeck: DeckId = deckA.track && !deckB.track ? 'B' : 'A';
+  const readyMashup = useMemo(() => {
+    if (!deckA.track || !deckB.track || !analyses.A || !analyses.B) return null;
+    return buildMashupAnalysis(deckA, deckB, analyses.A, analyses.B);
+  }, [analyses.A, analyses.B, deckA, deckB]);
+  const visibleMashup = mashup ?? readyMashup;
+  const scenes = useMemo(
+    () => modelScenes.length > 0 ? modelScenes : generateMashupScenes(visibleMashup, deckA.track, deckB.track),
+    [deckA.track, deckB.track, modelScenes, visibleMashup],
+  );
+  const sceneStatusLabel =
+    sceneStatus === 'model'
+      ? 'claude sidecar'
+      : sceneStatus === 'loading'
+        ? 'asking claude'
+        : sceneStatus === 'offline'
+          ? 'browser fallback'
+          : sceneStatus === 'error'
+            ? 'fallback after error'
+            : 'browser fallback';
 
-  // Initialize coach engine
-  useCoach();
-
-  // Tutorial auto-advance watcher
-  useTutorialAdvance();
-
-  // Track stem toggles for tutorial step 8
-  const tutorialIsActive = useTutorialStore((s) => s.isActive);
-  const tutorialStep = useTutorialStore((s) => s.currentStep);
-  const incrementStemToggles = useTutorialStore((s) => s.incrementStemToggles);
-  const stemToggleTrackerRef = useRef(false);
-
-  useEffect(() => {
-    if (!tutorialIsActive || (tutorialStep !== 7 && tutorialStep !== 8)) return;
-
-    const unsub = useDeckStore.subscribe((_state, prevState) => {
-      const state = useDeckStore.getState();
-      // Check if any stem toggled between prev and current
-      const stemsA = state.deckA.stems;
-      const stemsB = state.deckB.stems;
-      const prevA = prevState.deckA.stems;
-      const prevB = prevState.deckB.stems;
-
-      const changed =
-        stemsA.vocals !== prevA.vocals ||
-        stemsA.drums !== prevA.drums ||
-        stemsA.bass !== prevA.bass ||
-        stemsA.other !== prevA.other ||
-        stemsB.vocals !== prevB.vocals ||
-        stemsB.drums !== prevB.drums ||
-        stemsB.bass !== prevB.bass ||
-        stemsB.other !== prevB.other;
-
-      if (changed) {
-        incrementStemToggles();
-      }
-    });
-
-    return unsub;
-  }, [tutorialIsActive, tutorialStep, incrementStemToggles]);
-
-  // Auto-start tutorial on first load if not completed
-  useEffect(() => {
-    const tutState = useTutorialStore.getState();
-    if (!tutState.completed && !tutState.isActive) {
-      tutState.startTutorial();
-    }
-  }, []);
-
-  // Suppress coach during tutorial
-  useEffect(() => {
-    if (tutorialIsActive) {
-      useCoachStore.getState().setEnabled(false);
-    } else {
-      // Re-enable coach after tutorial ends
-      if (!stemToggleTrackerRef.current) {
-        stemToggleTrackerRef.current = true;
-      } else {
-        useCoachStore.getState().setEnabled(true);
-      }
-    }
-  }, [tutorialIsActive]);
-
-  // Ensure audio context is started on first user interaction
   const ensureAudio = useCallback(async () => {
     if (!audioInitRef.current) {
       await initAudio();
@@ -109,26 +81,103 @@ export default function App() {
     }
   }, []);
 
-  // Handle track loading from library
+  const handleApplyScene = useCallback(
+    (scene: MashupScene) => {
+      setStemState('A', scene.deckAStems);
+      setStemState('B', scene.deckBStems);
+      setCrossfader(scene.crossfader);
+      setActiveSceneId(scene.id);
+    },
+    [setCrossfader, setStemState],
+  );
+
+  const requestModelScenes = useCallback(
+    async (
+      pair: MashupAnalysis,
+      trackA: Track,
+      trackB: Track,
+      analysisA: TrackAnalysis,
+      analysisB: TrackAnalysis,
+    ) => {
+      setSceneStatus('loading');
+      try {
+        const nextScenes = await suggestScenesWithSidecar({
+          trackA,
+          trackB,
+          analysisA,
+          analysisB,
+          mashup: pair,
+        });
+        setModelScenes(nextScenes);
+        setActiveSceneId(null);
+        setSceneStatus('model');
+      } catch (error) {
+        console.warn('[mixmash] sidecar scene generation unavailable', error);
+        setModelScenes([]);
+        setSceneStatus('offline');
+      }
+    },
+    [],
+  );
+
+  const handleSync = useCallback(async () => {
+    void ensureAudio().catch((err) => {
+      console.warn('[mixmash] Audio unlock deferred until the next gesture', err);
+    });
+
+    const state = useDeckStore.getState();
+    const analysisA = analyses.A;
+    const analysisB = analyses.B;
+    if (!state.deckA.track || !state.deckB.track || !analysisA || !analysisB) return;
+
+    const pair = buildMashupAnalysis(state.deckA, state.deckB, analysisA, analysisB);
+    const engineA = getEngine('A');
+    const engineB = getEngine('B');
+
+    syncDecks(engineA, engineB, pair.targetBpm, analysisA.bpm, analysisB.bpm);
+    setPlaybackRate('A', pair.deckARate, pair.targetBpm);
+    setPlaybackRate('B', pair.deckBRate, pair.targetBpm);
+    seekDeck('B', pair.deckBSeek);
+
+    setMashup({ ...pair, status: 'synced' });
+    void requestModelScenes({ ...pair, status: 'synced' }, state.deckA.track, state.deckB.track, analysisA, analysisB);
+  }, [analyses.A, analyses.B, ensureAudio, getEngine, requestModelScenes, seekDeck, setPlaybackRate]);
+
+  useKeyboard({
+    onOpenSearch: () => setPaletteOpen(true),
+    onSync: handleSync,
+    scenes,
+    onApplyScene: handleApplyScene,
+  });
+
   const handleLoadTrack = useCallback(
     async (track: Track, targetDeck: DeckId) => {
-      await ensureAudio();
-
-      // Set track on store (BPM from track or estimates)
       const bpm = track.bpm ?? BPM_ESTIMATES[track.artist] ?? 128;
-      setDeckTrack(targetDeck, { ...track, bpm });
+      const trackWithBpm = { ...track, bpm };
 
-      // Load stems into audio engine
+      setDeckTrack(targetDeck, trackWithBpm);
+      setMashup(null);
+      setModelScenes([]);
+      setSceneStatus('fallback');
+      setActiveSceneId(null);
+      setAnalyses((current) => {
+        const next = { ...current };
+        delete next[targetDeck];
+        return next;
+      });
+
+      void ensureAudio().catch((err) => {
+        console.warn('[mixmash] Audio unlock deferred until playback', err);
+      });
+
       const engine = getEngine(targetDeck);
       const stemUrls = getStemUrls(track.filename);
 
       try {
-        // Try loading stems first
         await engine.loadStems(stemUrls);
-        console.log(`[mixpilot] Loaded stems for ${track.name} on Deck ${targetDeck}`);
+        console.log(`[mixmash] Loaded stems for ${track.name} on Deck ${targetDeck}`);
       } catch (err) {
-        console.warn(`[mixpilot] Stems not available for ${track.name}, loading full track`, err);
-        // Fallback: load the full track as all four stem slots
+        console.warn(`[mixmash] Stems not available for ${track.name}, loading full track`, err);
         const fullUrl = getTrackUrl(track.filename);
         try {
           await engine.loadStems({
@@ -137,24 +186,26 @@ export default function App() {
             bass: fullUrl,
             other: fullUrl,
           });
-          console.log(`[mixpilot] Loaded full track for ${track.name} on Deck ${targetDeck}`);
+          console.log(`[mixmash] Loaded full track for ${track.name} on Deck ${targetDeck}`);
         } catch (fallbackErr) {
-          console.error(`[mixpilot] Failed to load track ${track.name}`, fallbackErr);
+          console.error(`[mixmash] Failed to load track ${track.name}`, fallbackErr);
         }
       }
 
-      // Set duration and extract waveform peaks from drums stem
       const duration = engine.getDuration();
       const peaks = engine.getPeaks('drums', 500);
-      const deckKey = targetDeck === 'A' ? 'deckA' : 'deckB';
+      const key = deckKey(targetDeck);
       useDeckStore.setState((s) => ({
-        [deckKey]: { ...s[deckKey], duration, bpm, peaks },
+        [key]: { ...s[key], duration, bpm, peaks, playbackRate: 1 },
       }));
+
+      const deckState = useDeckStore.getState()[key];
+      const analysis = await analyzeTrackForMashup(trackWithBpm, deckState);
+      setAnalyses((current) => ({ ...current, [targetDeck]: analysis }));
     },
-    [ensureAudio, setDeckTrack, getEngine],
+    [ensureAudio, getEngine, setDeckTrack],
   );
 
-  // Poll playback time every 100ms and update waveform cursor
   useEffect(() => {
     const interval = setInterval(() => {
       const state = useDeckStore.getState();
@@ -168,62 +219,64 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    let interval: ReturnType<typeof window.setInterval> | null = null;
+
+    async function startBackgroundAnalysis() {
+      try {
+        await startLibraryBackgroundAnalysis(TRACKS_WITH_BPM);
+        if (cancelled) return;
+        setLibraryAnalysisLabel('analyzing library');
+
+        interval = window.setInterval(async () => {
+          try {
+            const status = await getLibraryAnalysisStatus();
+            if (cancelled) return;
+            if (status.running) {
+              setLibraryAnalysisLabel(`analyzing ${status.completed}/${status.total}`);
+            } else {
+              setLibraryAnalysisLabel(`cache ${status.cacheCount} tracks`);
+              if (interval) window.clearInterval(interval);
+            }
+          } catch {
+            if (!cancelled) setLibraryAnalysisLabel('sidecar offline');
+            if (interval) window.clearInterval(interval);
+          }
+        }, 2500);
+      } catch {
+        if (!cancelled) setLibraryAnalysisLabel('sidecar offline');
+      }
+    }
+
+    void startBackgroundAnalysis();
+
+    return () => {
+      cancelled = true;
+      if (interval) window.clearInterval(interval);
+    };
+  }, []);
+
   const handlePlayPause = useCallback(
     async (id: DeckId) => {
-      await ensureAudio();
+      void ensureAudio().catch((err) => {
+        console.warn('[mixmash] Audio unlock deferred until the next gesture', err);
+      });
       const state = useDeckStore.getState();
       const deck = id === 'A' ? state.deckA : state.deckB;
+      if (!deck.isPlaying && (!deck.track || deck.duration <= 0)) return;
       setDeckPlaying(id, !deck.isPlaying);
     },
     [ensureAudio, setDeckPlaying],
   );
 
-  const handleSync = useCallback(async () => {
-    await ensureAudio();
-    const state = useDeckStore.getState();
-    const bpmA = state.deckA.bpm;
-    const bpmB = state.deckB.bpm;
-    if (bpmA > 0 && bpmB > 0) {
-      const engineA = getEngine('A');
-      const engineB = getEngine('B');
-
-      // 1. Match tempo: adjust Deck B's rate so it plays at bpmA
-      syncDecks(engineA, engineB, bpmA, bpmA, bpmB);
-
-      // 2. Beat phase snap: seek Deck B so its beats align with Deck A's current beat
-      const beatPeriodA = 60 / bpmA; // seconds per beat at target BPM
-      const phaseA = engineA.getCurrentTime() % beatPeriodA; // A's position within current beat
-
-      // Deck B's file has bpmB BPM, but after rate adjust it plays at bpmA.
-      // To put Deck B at the same beat phase, we seek it in its original timescale.
-      const beatPeriodB_original = 60 / bpmB; // beat period in B's original file
-      const currentB = engineB.getCurrentTime();
-      const currentBeatB = Math.floor(currentB / beatPeriodB_original);
-      // Target: find the beat boundary in B's original time closest to keeping B near its current position
-      const phaseB_target = phaseA * (bpmB / bpmA); // same phase in B's original timescale
-      const seekB = currentBeatB * beatPeriodB_original + phaseB_target;
-      engineB.seek(Math.max(0, seekB));
-
-      // 3. Update Deck B's displayed BPM to the target
-      useDeckStore.setState((s) => ({
-        deckB: { ...s.deckB, bpm: bpmA },
-      }));
-
-      console.log(`[mixpilot] SYNC: B ${bpmB}→${bpmA} BPM (rate=${(bpmA / bpmB).toFixed(3)}, seekB=${seekB.toFixed(2)}s)`);
-    }
-  }, [ensureAudio, getEngine]);
-
-  // Nudge: temporarily speed up or slow down a deck to manually phase-align beats.
-  // Hold << to slow down (let other deck catch up), >> to speed up (push ahead).
   const handleNudge = useCallback(
     (id: DeckId, direction: 'forward' | 'back') => {
       const engine = getEngine(id);
       const state = useDeckStore.getState();
-      const currentBpm = id === 'A' ? state.deckA.bpm : state.deckB.bpm;
-      if (currentBpm <= 0) return;
-      // Nudge by ±8% of current BPM while held
-      const nudgedBpm = direction === 'forward' ? currentBpm * 1.08 : currentBpm * 0.92;
-      engine.setPlaybackRate(nudgedBpm / currentBpm);
+      const deck = id === 'A' ? state.deckA : state.deckB;
+      const baseRate = deck.playbackRate || 1;
+      engine.setPlaybackRate(baseRate * (direction === 'forward' ? 1.08 : 0.92));
     },
     [getEngine],
   );
@@ -231,24 +284,17 @@ export default function App() {
   const handleNudgeEnd = useCallback(
     (id: DeckId) => {
       const engine = getEngine(id);
-      // Restore normal rate (1.0 relative to the stored bpm)
-      engine.setPlaybackRate(1.0);
+      const state = useDeckStore.getState();
+      const deck = id === 'A' ? state.deckA : state.deckB;
+      engine.setPlaybackRate(deck.playbackRate || 1);
     },
     [getEngine],
   );
 
+  const effectiveProductionBpm = visibleMashup?.targetBpm ?? deckA.bpm ?? deckB.bpm ?? 128;
+
   return (
-    <div
-      onClick={ensureAudio}
-      style={{
-        display: 'flex',
-        height: '100vh',
-        width: '100vw',
-        overflow: 'hidden',
-        background: 'var(--bg-base)',
-      }}
-    >
-      {/* Left sidebar: Library */}
+    <div className="app-shell" onClick={ensureAudio}>
       <Library
         onLoadTrack={handleLoadTrack}
         deckALoaded={deckA.track !== null}
@@ -257,75 +303,82 @@ export default function App() {
         currentTrackB={deckB.track}
       />
 
-      {/* Main area */}
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          minWidth: 0,
-          overflow: 'hidden',
-        }}
-      >
-        {/* AI Assistant Panel */}
-        <AIPanel />
+      <main className="workspace">
+        <MashupHeader
+          deckA={deckA}
+          deckB={deckB}
+          analysisA={analyses.A}
+          analysisB={analyses.B}
+          mashup={visibleMashup}
+          sidecarLabel={libraryAnalysisLabel}
+          onOpenSearch={() => setPaletteOpen(true)}
+          onSync={handleSync}
+        />
 
-        {/* Decks + Mixer */}
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            gap: '12px',
-            padding: '12px',
-            alignItems: 'stretch',
-            minHeight: 0,
-            overflow: 'auto',
-          }}
-        >
-          {/* Deck A */}
-          <DeckView
-            deckId="A"
-            state={deckA}
-            onPlayPause={() => handlePlayPause('A')}
-            onStemToggle={(stem) => toggleStem('A', stem)}
-            onVolumeChange={(v) => setVolume('A', v)}
-            onEQChange={(band, val) => setEQ('A', band, val)}
-            onSeek={(p) => seekDeck('A', p * deckA.duration)}
-            onNudge={(dir) => handleNudge('A', dir)}
-            onNudgeEnd={() => handleNudgeEnd('A')}
+        <div className="workspace-body custom-scrollbar">
+          <section className="deck-rig">
+            <DeckView
+              deckId="A"
+              state={deckA}
+              onPlayPause={() => handlePlayPause('A')}
+              onStemToggle={(stem) => toggleStem('A', stem)}
+              onVolumeChange={(v) => setVolume('A', v)}
+              onEQChange={(band, val) => setEQ('A', band, val)}
+              onSeek={(p) => seekDeck('A', p * deckA.duration)}
+              onNudge={(dir) => handleNudge('A', dir)}
+              onNudgeEnd={() => handleNudgeEnd('A')}
+            />
+
+            <Mixer
+              crossfader={crossfader}
+              masterVolume={masterVolume}
+              bpmA={deckA.bpm}
+              bpmB={deckB.bpm}
+              onCrossfaderChange={setCrossfader}
+              onMasterVolumeChange={(v) => {
+                useDeckStore.setState({ masterVolume: v });
+              }}
+              onSync={handleSync}
+            />
+
+            <DeckView
+              deckId="B"
+              state={deckB}
+              onPlayPause={() => handlePlayPause('B')}
+              onStemToggle={(stem) => toggleStem('B', stem)}
+              onVolumeChange={(v) => setVolume('B', v)}
+              onEQChange={(band, val) => setEQ('B', band, val)}
+              onSeek={(p) => seekDeck('B', p * deckB.duration)}
+              onNudge={(dir) => handleNudge('B', dir)}
+              onNudgeEnd={() => handleNudgeEnd('B')}
+            />
+          </section>
+
+          <SceneStrip
+            scenes={scenes}
+            activeSceneId={activeSceneId}
+            statusLabel={sceneStatusLabel}
+            onApplyScene={handleApplyScene}
           />
 
-          {/* Mixer */}
-          <Mixer
-            crossfader={crossfader}
-            masterVolume={masterVolume}
-            bpmA={deckA.bpm}
-            bpmB={deckB.bpm}
-            onCrossfaderChange={setCrossfader}
-            onMasterVolumeChange={(v) => {
-              useDeckStore.setState({ masterVolume: v });
-            }}
-            onSync={handleSync}
-          />
-
-          {/* Deck B */}
-          <DeckView
-            deckId="B"
-            state={deckB}
-            onPlayPause={() => handlePlayPause('B')}
-            onStemToggle={(stem) => toggleStem('B', stem)}
-            onVolumeChange={(v) => setVolume('B', v)}
-            onEQChange={(band, val) => setEQ('B', band, val)}
-            onSeek={(p) => seekDeck('B', p * deckB.duration)}
-            onNudge={(dir) => handleNudge('B', dir)}
-            onNudgeEnd={() => handleNudgeEnd('B')}
-          />
+          <div className="bottom-instrument-grid">
+            <PerformanceKeyboard
+              scenes={scenes}
+              activeSceneId={activeSceneId}
+              onApplyScene={handleApplyScene}
+            />
+            <ProductionPad bpm={effectiveProductionBpm} />
+          </div>
         </div>
-      </div>
+      </main>
 
-      {/* Floating overlays */}
       <KeyboardHints />
-      <TutorialOverlay />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onLoadTrack={handleLoadTrack}
+        defaultDeck={defaultDeck}
+      />
     </div>
   );
 }

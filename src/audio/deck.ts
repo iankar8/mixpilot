@@ -35,6 +35,7 @@ export class Deck {
   private _loading = false;
   private _playStartContextTime = 0;
   private _playStartOffset = 0;
+  private _playbackRate = 1;
 
   constructor(id: DeckId) {
     this.id = id;
@@ -81,6 +82,7 @@ export class Deck {
     this._disposeStems();
     this._playStartOffset = 0;
     this._playStartContextTime = 0;
+    this._playbackRate = 1;
 
     // Create players + channels for each stem and begin loading in parallel.
     const loadPromises: Promise<void>[] = [];
@@ -133,7 +135,7 @@ export class Deck {
   pause(): void {
     if (this._disposed) return;
     const now = Tone.now();
-    this._playStartOffset += now - this._playStartContextTime;
+    this._playStartOffset += (now - this._playStartContextTime) * this._playbackRate;
     for (const player of this.players.values()) {
       if (player.state === 'started') {
         player.stop(now);
@@ -276,6 +278,12 @@ export class Deck {
   /** Set playback rate for all stems (1.0 = normal speed). */
   setPlaybackRate(rate: number): void {
     if (this._disposed) return;
+    const now = Tone.now();
+    if (this.isPlaying()) {
+      this._playStartOffset += (now - this._playStartContextTime) * this._playbackRate;
+      this._playStartContextTime = now;
+    }
+    this._playbackRate = rate;
     for (const player of this.players.values()) {
       player.playbackRate = rate;
     }
@@ -288,7 +296,7 @@ export class Deck {
   /** Current playback position in seconds. */
   getCurrentTime(): number {
     if (this.isPlaying()) {
-      return this._playStartOffset + (Tone.now() - this._playStartContextTime);
+      return this._playStartOffset + (Tone.now() - this._playStartContextTime) * this._playbackRate;
     }
     return this._playStartOffset;
   }

@@ -1,20 +1,18 @@
-import { useTutorialStore } from '../tutorial/tutorial-store';
-
 const SHORTCUTS = [
+  { key: '/', action: 'Search' },
+  { key: '1 2 3 4', action: 'Scenes' },
   { key: 'SPACE', action: 'Play A' },
   { key: 'ENTER', action: 'Play B' },
   { key: 'Q W E R', action: 'Stems A' },
   { key: 'U I O P', action: 'Stems B' },
   { key: '\u2190 \u2192', action: 'Crossfader' },
-  { key: 'TAB', action: 'Sync' },
+  { key: 'TAB', action: 'Auto sync' },
 ];
 
 export default function KeyboardHints() {
-  const restartTutorial = useTutorialStore((s) => s.restartTutorial);
-  const tutorialActive = useTutorialStore((s) => s.isActive);
-
   return (
     <div
+      className="keyboard-hints"
       style={{
         position: 'fixed',
         bottom: '16px',
@@ -61,24 +59,6 @@ export default function KeyboardHints() {
           </span>
         </div>
       ))}
-      {!tutorialActive && (
-        <button
-          onClick={restartTutorial}
-          style={{
-            marginTop: '6px',
-            padding: '4px 8px',
-            fontSize: '10px',
-            color: 'var(--accent)',
-            background: 'transparent',
-            border: '1px solid var(--border)',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            width: '100%',
-          }}
-        >
-          Restart Tutorial
-        </button>
-      )}
     </div>
   );
 }

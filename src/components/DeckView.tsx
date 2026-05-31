@@ -29,9 +29,10 @@ export default function DeckView({
   const [hoverPlay, setHoverPlay] = useState(false);
   const nudgeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasTrack = state.track !== null;
+  const canTransport = hasTrack && state.duration > 0;
 
   const startNudge = (direction: 'forward' | 'back') => {
-    if (!hasTrack) return;
+    if (!canTransport) return;
     onNudge(direction);
     nudgeIntervalRef.current = setInterval(() => onNudge(direction), 80);
   };
@@ -66,8 +67,8 @@ export default function DeckView({
             fontFamily: 'ui-monospace, monospace',
             fontSize: '13px',
             fontWeight: 700,
-            color: 'var(--accent)',
-            background: 'rgba(167,139,250,0.12)',
+            color: deckId === 'A' ? 'var(--deck-a)' : 'var(--deck-b)',
+            background: deckId === 'A' ? 'rgba(255,107,138,0.12)' : 'rgba(92,200,255,0.12)',
             padding: '2px 8px',
             borderRadius: '4px',
           }}
@@ -102,7 +103,14 @@ export default function DeckView({
               </div>
             </>
           ) : (
-            <div style={{ fontSize: '13px', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+            <div
+              style={{
+                fontSize: '13px',
+                color: 'var(--text-tertiary)',
+                fontStyle: 'italic',
+                whiteSpace: 'nowrap',
+              }}
+            >
               Drop a track
             </div>
           )}
@@ -119,13 +127,16 @@ export default function DeckView({
         >
           {state.bpm > 0 ? state.bpm.toFixed(1) : '---.-'}
         </span>
+        {state.playbackRate !== 1 && (
+          <span className="mono-readout">{state.playbackRate.toFixed(3)}x</span>
+        )}
       </div>
 
       {/* Waveform — peaks from Tone.js buffer, click to seek */}
       <Waveform
         peaks={state.peaks}
         progress={state.duration > 0 ? state.currentTime / state.duration : 0}
-        color={deckId === 'A' ? '#a78bfa' : '#60a5fa'}
+        color={deckId === 'A' ? '#ff6b8a' : '#5cc8ff'}
         height={80}
         onSeek={onSeek}
       />
@@ -137,16 +148,16 @@ export default function DeckView({
           onMouseDown={() => startNudge('back')}
           onMouseUp={stopNudge}
           onMouseLeave={stopNudge}
-          disabled={!hasTrack}
+          disabled={!canTransport}
           title="Hold to nudge back (slow down temporarily)"
           style={{
             width: '36px', height: '36px', borderRadius: '50%',
             border: '1px solid var(--border)',
             background: 'var(--surface)',
             color: 'var(--text-secondary)',
-            cursor: hasTrack ? 'pointer' : 'not-allowed',
+            cursor: canTransport ? 'pointer' : 'not-allowed',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            opacity: hasTrack ? 1 : 0.3,
+            opacity: canTransport ? 1 : 0.3,
             fontSize: '14px',
             userSelect: 'none',
           }}
@@ -159,7 +170,7 @@ export default function DeckView({
           onClick={onPlayPause}
           onMouseEnter={() => setHoverPlay(true)}
           onMouseLeave={() => setHoverPlay(false)}
-          disabled={!hasTrack}
+          disabled={!canTransport}
           style={{
             width: '52px',
             height: '52px',
@@ -169,18 +180,18 @@ export default function DeckView({
               : '2px solid var(--border)',
             background: state.isPlaying
               ? 'var(--accent)'
-              : hoverPlay && hasTrack
+              : hoverPlay && canTransport
                 ? 'rgba(167,139,250,0.15)'
                 : 'var(--surface)',
             color: state.isPlaying ? '#fff' : 'var(--text-secondary)',
-            cursor: hasTrack ? 'pointer' : 'not-allowed',
+            cursor: canTransport ? 'pointer' : 'not-allowed',
             transition: 'all 150ms cubic-bezier(0.22, 1, 0.36, 1)',
             boxShadow: state.isPlaying ? '0 0 20px var(--accent-glow)' : 'none',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontSize: '20px',
-            opacity: hasTrack ? 1 : 0.4,
+            opacity: canTransport ? 1 : 0.4,
           }}
         >
           {state.isPlaying ? (
@@ -202,16 +213,16 @@ export default function DeckView({
           onMouseDown={() => startNudge('forward')}
           onMouseUp={stopNudge}
           onMouseLeave={stopNudge}
-          disabled={!hasTrack}
+          disabled={!canTransport}
           title="Hold to nudge forward (speed up temporarily)"
           style={{
             width: '36px', height: '36px', borderRadius: '50%',
             border: '1px solid var(--border)',
             background: 'var(--surface)',
             color: 'var(--text-secondary)',
-            cursor: hasTrack ? 'pointer' : 'not-allowed',
+            cursor: canTransport ? 'pointer' : 'not-allowed',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            opacity: hasTrack ? 1 : 0.3,
+            opacity: canTransport ? 1 : 0.3,
             fontSize: '14px',
             userSelect: 'none',
           }}

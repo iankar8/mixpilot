@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// mixpilot – Tutorial Zustand store
+// mixmash – Tutorial Zustand store
 // ---------------------------------------------------------------------------
 
 import { create } from 'zustand';

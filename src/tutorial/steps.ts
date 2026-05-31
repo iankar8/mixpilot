@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// mixpilot – Tutorial step definitions
+// mixmash – Tutorial step definitions
 // ---------------------------------------------------------------------------
 
 export interface TutorialStep {
@@ -19,7 +19,7 @@ export interface TutorialStep {
 export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 1,
-    title: 'Welcome to mixpilot',
+    title: 'Welcome to mixmash',
     message:
       "You're about to make your first mix. I'll walk you through it. No experience needed — you've got ears, that's enough.",
     highlight: null,

@@ -92,7 +92,7 @@ export default function Mixer({
             border: '1px solid var(--border)',
           }}
         >
-          <span style={{ fontSize: '10px', color: '#60a5fa', fontWeight: 600 }}>B</span>
+          <span style={{ fontSize: '10px', color: 'var(--deck-b)', fontWeight: 600 }}>B</span>
           <span
             style={{
               fontFamily: 'ui-monospace, monospace',
@@ -130,7 +130,7 @@ export default function Mixer({
           letterSpacing: '0.1em',
         }}
       >
-        {synced ? 'SYNCED' : 'SYNC'}
+          {synced ? 'LOCKED' : 'AI SYNC'}
       </button>
 
       {/* Master volume */}
@@ -187,7 +187,7 @@ export default function Mixer({
           }}
         >
           <span style={{ fontSize: '10px', color: 'var(--accent)', fontWeight: 600 }}>A</span>
-          <span style={{ fontSize: '10px', color: '#60a5fa', fontWeight: 600 }}>B</span>
+          <span style={{ fontSize: '10px', color: 'var(--deck-b)', fontWeight: 600 }}>B</span>
         </div>
         <input
           type="range"
