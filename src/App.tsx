@@ -422,9 +422,13 @@ export default function App() {
     async function startBackgroundAnalysis() {
       try {
         void startLibraryBackgroundAnalysis(TRACKS_WITH_BPM).catch(() => undefined);
-        await startLibraryBackgroundAnalysisV2(TRACKS_WITH_BPM);
+        const v2Start = await startLibraryBackgroundAnalysisV2(TRACKS_WITH_BPM);
         if (cancelled) return;
-        setLibraryAnalysisLabel('analysis v2 warming');
+        setLibraryAnalysisLabel(
+          v2Start.running
+            ? `v2 ${v2Start.completed}/${v2Start.total}`
+            : `v2 cache ${v2Start.cacheCount}`,
+        );
         await refreshMashupInbox();
 
         interval = window.setInterval(async () => {
