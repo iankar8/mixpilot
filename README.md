@@ -18,6 +18,14 @@ npm install
 npm run dev
 ```
 
+Run the local model/audio-analysis sidecar in another terminal:
+
+```sh
+npm run sidecar
+```
+
+The sidecar listens on `127.0.0.1:8787`, uses the local Claude CLI login for model-backed scene suggestions, and caches background track analysis in `~/.mixmash/track-analysis-cache.json`.
+
 ## Verification
 
 ```sh
