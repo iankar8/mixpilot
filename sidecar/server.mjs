@@ -361,6 +361,11 @@ async function claudeStatus() {
 }
 
 async function prepareAndMaybeEnrichCandidates(tracks, analysisCache) {
+  const existing = await readCandidateCache();
+  if (existing.source === 'claude-enriched-v2' && existing.candidates.length) {
+    return existing;
+  }
+
   const prepared = await prepareCandidates(tracks, analysisCache, { minScore: 0.54, limit: 12 });
 
   if (process.env.MIXMASH_DISABLE_CLAUDE_INBOX === '1') {

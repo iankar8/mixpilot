@@ -78,7 +78,7 @@ export async function enhanceCandidatesWithClaude(candidates, { claudeBin = 'cla
       prompt,
     ],
     {
-      timeout: 70_000,
+      timeout: 100_000,
       maxBuffer: 2 * 1024 * 1024,
       env: {
         ...process.env,
