@@ -265,6 +265,7 @@ async function runLibraryAnalysis(tracks) {
 function parseClaudeJson(stdout) {
   const parsed = JSON.parse(stdout);
   if (parsed?.scenes) return parsed;
+  if (parsed?.structured_output?.scenes) return parsed.structured_output;
   if (typeof parsed?.result === 'object' && parsed.result?.scenes) return parsed.result;
   if (typeof parsed?.result === 'string') return JSON.parse(parsed.result);
   throw new Error('Claude response did not include scenes');
@@ -304,8 +305,7 @@ async function suggestScenes(payload) {
     '--model',
     CLAUDE_MODEL,
     '--no-session-persistence',
-    '--tools',
-    '',
+    '--disable-slash-commands',
     prompt,
   ];
 
