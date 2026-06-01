@@ -177,16 +177,24 @@ export default function App() {
     setPaletteOpen(false);
   }, [setDeckPlaying]);
 
-  const handlePlayPause = useCallback(async () => {
-    if (status !== 'ready' || deck.duration <= 0) return;
-    await ensureAudio();
-    setDeckPlaying('A', !deck.isPlaying);
-  }, [deck.duration, deck.isPlaying, ensureAudio, setDeckPlaying, status]);
+  const handlePlayPause = useCallback(() => {
+    if (status !== 'ready') return;
+    const nextPlaying = !deck.isPlaying;
+    setDeckPlaying('A', nextPlaying);
+    if (nextPlaying) {
+      void ensureAudio().catch((err) => {
+        setDeckPlaying('A', false);
+        setError(err instanceof Error ? err.message : String(err));
+      });
+    }
+  }, [deck.isPlaying, ensureAudio, setDeckPlaying, status]);
 
   const handleTriggerPad = useCallback(
-    async (pad: RemixPad) => {
+    (pad: RemixPad) => {
       if (status !== 'ready') return;
-      await ensureAudio();
+      void ensureAudio().catch((err) => {
+        setError(err instanceof Error ? err.message : String(err));
+      });
       getEngine('A').triggerRegion(pad.start, pad.duration, pad.stemMix);
       setActivePadId(pad.id);
       window.setTimeout(() => {

@@ -75,7 +75,7 @@ export function useKeyboard({
       switch (key) {
         case ' ': {
           e.preventDefault();
-          if (!store.deckA.isPlaying && (!store.deckA.track || store.deckA.duration <= 0)) return;
+          if (!store.deckA.isPlaying && !store.deckA.track) return;
           unlockAudio();
           const isPlaying = store.deckA.isPlaying;
           store.setDeckPlaying('A', !isPlaying);
